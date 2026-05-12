@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Новый бот (main.py)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/Новый бот/main.py",
+      "cwd": "${workspaceFolder}/Новый бот",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "envFile": "${workspaceFolder}/Новый бот/.env"
+    },
+    {
+      "name": "CollabX: бот (app.py)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/Бот для комарова (выполнено)/исправляем бот/app.py",
+      "cwd": "${workspaceFolder}/Бот для комарова (выполнено)/исправляем бот",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "envFile": "${workspaceFolder}/Бот для комарова (выполнено)/исправляем бот/.env"
+    }
+  ]
+}

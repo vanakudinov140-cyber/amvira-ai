@@ -1,0 +1,5 @@
+aiogram
+gigachat
+reportlab
+aiohttp
+nest_asyncio

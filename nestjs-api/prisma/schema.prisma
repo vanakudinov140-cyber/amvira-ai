@@ -1,0 +1,221 @@
+// =============================================================================
+// CANONICAL SCHEMA — single source of truth (SSOT)
+// Extended conversational domain per docs/ARCHITECTURE_DECISION_RECORD.md
+// PostgreSQL · UUID PKs · snake_case columns · enums · soft delete (where stated)
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Connection string only (incl. Amvera CNPG). See docs/AMVERA-DEPLOY.md for SSL/query params.
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Enums — stable vocabulary; workflow driven by backend, not AI
+// -----------------------------------------------------------------------------
+
+enum ClientType {
+  NEW
+  RETURNING
+  VIP
+}
+
+enum DialogChannel {
+  TELEGRAM
+  WHATSAPP
+  API
+  WEBHOOK
+}
+
+/// Funnel / consultation stage. Same enum on Dialog.currentStage and DialogState.stage.
+enum DialogStage {
+  TRUST_BUILDING
+  DISCOVERY
+  PRESENTATION
+  OBJECTION_HANDLING
+  BOOKING
+  COMPLETED
+}
+
+enum DialogStatus {
+  ACTIVE
+  PAUSED
+  CLOSED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+  TOOL
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+/// Catalog of consultation / communication strategies (codes are immutable identifiers).
+enum ScenarioCode {
+  HAIR_COLORING
+  HAIRCUT
+  BROWS
+  MAKEUP
+  RETENTION_CAMPAIGN
+  CONSULTATION
+  UPSELL
+  REACTIVATION
+}
+
+// -----------------------------------------------------------------------------
+// Models
+// -----------------------------------------------------------------------------
+
+/// Salon customer; anchor for dialogs and bookings.
+model Client {
+  id         String     @id @default(uuid()) @db.Uuid
+  name       String
+  phone      String?
+  telegram   String?
+  whatsapp   String?
+  clientType ClientType @map("client_type")
+  notes      String?
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  dialogs   Dialog[]
+  bookings  Booking[]
+
+  @@index([phone])
+  @@index([telegram])
+  @@index([whatsapp])
+  @@index([clientType, deletedAt])
+  @@index([createdAt])
+  @@map("clients")
+}
+
+/// Consultation / communication strategy row (seeded or admin-managed).
+model Scenario {
+  id       String       @id @default(uuid()) @db.Uuid
+  code     ScenarioCode @unique
+  name     String
+  isActive Boolean      @default(true) @map("is_active")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  dialogs Dialog[]
+
+  @@index([isActive, deletedAt])
+  @@index([code, deletedAt])
+  @@map("scenarios")
+}
+
+/// One conversational session: always tied to a Client and a Scenario (ADR: mandatory).
+model Dialog {
+  id           String        @id @default(uuid()) @db.Uuid
+  clientId     String        @map("client_id") @db.Uuid
+  scenarioId   String        @map("scenario_id") @db.Uuid
+  currentStage DialogStage   @map("current_stage")
+  status       DialogStatus
+  channel      DialogChannel
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  client   Client        @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  scenario Scenario      @relation(fields: [scenarioId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  messages Message[]
+  states   DialogState[]
+
+  @@index([clientId])
+  @@index([scenarioId])
+  @@index([clientId, deletedAt])
+  @@index([clientId, status, deletedAt])
+  @@index([scenarioId, status, deletedAt])
+  @@index([channel, status])
+  @@index([currentStage, status])
+  @@index([createdAt])
+  @@map("dialogs")
+}
+
+/// Append-only workflow history (and payload for orchestration / analytics / QC).
+/// No deleted_at: soft-deleting history breaks audit; redaction is a separate product concern.
+model DialogState {
+  id       String      @id @default(uuid()) @db.Uuid
+  dialogId String      @map("dialog_id") @db.Uuid
+  stage    DialogStage
+  payload  Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  dialog Dialog @relation(fields: [dialogId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([dialogId])
+  @@index([dialogId, createdAt])
+  @@index([stage, createdAt])
+  @@map("dialog_states")
+}
+
+/// Single utterance in a dialog (any channel).
+model Message {
+  id       String      @id @default(uuid()) @db.Uuid
+  dialogId String      @map("dialog_id") @db.Uuid
+  role     MessageRole
+  content  String      @db.Text
+  metadata Json?
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  dialog Dialog @relation(fields: [dialogId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([dialogId])
+  @@index([dialogId, createdAt])
+  @@index([dialogId, deletedAt])
+  @@index([dialogId, role, createdAt])
+  @@index([role, createdAt])
+  @@map("messages")
+}
+
+/// Scheduled visit / service hold; lifecycle separate from Dialog unless linked later in app layer.
+model Booking {
+  id       String   @id @default(uuid()) @db.Uuid
+  clientId String   @map("client_id") @db.Uuid
+  service  String
+  /// Slot start; store UTC at API boundary, present in local TZ in application.
+  datetime DateTime @map("datetime")
+  status   BookingStatus
+  notes    String?
+
+  /// YCLIENTS external record id after successful sync (optional).
+  yclientsExternalId String? @map("yclients_external_id") @db.Text
+  /// pending | synced | failed | skipped
+  yclientsSyncStatus String? @map("yclients_sync_status") @db.VarChar(32)
+  yclientsSyncError  String? @map("yclients_sync_error") @db.Text
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([clientId])
+  @@index([clientId, deletedAt])
+  @@index([clientId, datetime])
+  @@index([status, datetime])
+  @@index([datetime])
+  @@map("bookings")
+}
