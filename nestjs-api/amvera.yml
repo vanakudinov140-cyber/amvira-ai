@@ -1,22 +1,9 @@
 meta:
-  environment: node
-  toolchain:
-    name: npm
-    version: 10
+  environment: docker
 
 build:
-  commands:
-    - npm install
-    - npm run build
+  dockerfile: Dockerfile
 
 run:
   command: npm run start:prod
-
   containerPort: 3000
-
-  env:
-    - name: NODE_ENV
-      value: production
-
-    - name: PORT
-      value: 3000
