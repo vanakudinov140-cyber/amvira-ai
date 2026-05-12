@@ -1,6 +1,8 @@
 # Деплой nestjs-api в Amvera
 
-Контейнер из корня `nestjs-api`: `Dockerfile`, точка входа `scripts/docker-entrypoint.sh` (перед стартом выполняется `prisma migrate deploy`).
+В **корне репозитория**: `amvera.yml` и `Dockerfile` (контекст сборки — весь репозиторий, исходники в `nestjs-api/`). Точка входа образа: `nestjs-api/scripts/docker-entrypoint.sh` (перед стартом выполняется `prisma migrate deploy`).
+
+Для **локального** Docker из каталога `nestjs-api` по-прежнему используйте `nestjs-api/Dockerfile` и `docker-compose.yml` внутри `nestjs-api`.
 
 ## 1. `DATABASE_URL` (Prisma / PostgreSQL)
 

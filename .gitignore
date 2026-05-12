@@ -1,0 +1,9 @@
+# Корень монорепозитория — артефакты деплоя / локальная разработка nestjs-api
+nestjs-api/node_modules/
+nestjs-api/dist/
+nestjs-api/coverage/
+nestjs-api/.env
+nestjs-api/.env.local
+nestjs-api/.env.production
+nestjs-api/.env.amvera
+nestjs-api/.env.*.local
