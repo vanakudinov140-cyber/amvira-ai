@@ -24,12 +24,10 @@ COPY alembic.ini .
 COPY alembic ./alembic
 COPY app ./app
 
-COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY развертывать/nginx.conf /etc/nginx/conf.d/default.conf
 
 RUN find /app -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
-USER appuser
+EXPOSE 80
 
-EXPOSE 8000
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD sh -c "nginx && uvicorn app.main:app --host 0.0.0.0 --port 8000"
