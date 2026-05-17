@@ -1,4 +1,4 @@
-# Retention CRM — production на Amvera (Docker, порт 80)
+# Retention CRM — production на Amvera (Docker, HTTP port 80)
 # https://docs.amvera.ru/applications/configuration/docker.html
 
 meta:
@@ -11,3 +11,4 @@ build:
 
 run:
   containerPort: 80
+  servicePort: 80

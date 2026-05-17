@@ -49,7 +49,8 @@ RUN chmod +x /docker-entrypoint.sh \
 
 EXPOSE 80
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+# start-period: migrations + cold PostgreSQL on first Amvera deploy
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=5 \
     CMD curl -fsS http://127.0.0.1/health || exit 1
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
