@@ -29,9 +29,12 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nginx curl \
+    && apt-get install -y --no-install-recommends nginx curl tini \
     && rm -rf /var/lib/apt/lists/* \
-    && rm -f /etc/nginx/sites-enabled/default
+    && rm -f /etc/nginx/sites-enabled/default \
+    && sed -i 's|include /etc/nginx/sites-enabled/\*;|# include /etc/nginx/sites-enabled/*;|' /etc/nginx/nginx.conf \
+    && mkdir -p /var/lib/nginx/body /var/lib/nginx/proxy /var/lib/nginx/fastcgi /var/lib/nginx/uwsgi /var/lib/nginx/scgi /run \
+    && chown -R www-data:www-data /var/lib/nginx /usr/share/nginx/html
 
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
@@ -49,8 +52,8 @@ RUN chmod +x /docker-entrypoint.sh \
 
 EXPOSE 80
 
-# start-period: migrations + cold PostgreSQL on first Amvera deploy
-HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=5 \
-    CMD curl -fsS http://127.0.0.1/health || exit 1
+# Liveness: dashboard on :80 (не зависит от PostgreSQL)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+    CMD curl -fsS http://127.0.0.1/ || exit 1
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/docker-entrypoint.sh"]
