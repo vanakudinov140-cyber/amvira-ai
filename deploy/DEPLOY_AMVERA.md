@@ -97,7 +97,10 @@ postgresql+asyncpg://<user>:<password>@amvera-<user>-cnpg-<pg_project>-rw:5432/<
 
 ```text
 GET https://<ваш-проект>.amvera.app/health
-→ {"status":"ok","database":"connected"}
+→ {"status":"ok"}
+
+GET https://<ваш-проект>.amvera.app/health/db
+→ {"status":"ok","database":"connected"} (или 503 если БД недоступна)
 ```
 
 ---

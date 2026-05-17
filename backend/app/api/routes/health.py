@@ -13,8 +13,15 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
-async def health() -> JSONResponse:
-    """Проверка API и подключения к PostgreSQL."""
+def health() -> dict[str, str]:
+    """Liveness для Amvera/Docker: без БД и внешних зависимостей."""
+
+    return {"status": "ok"}
+
+
+@router.get("/health/db")
+async def health_db() -> JSONResponse:
+    """Readiness: проверка PostgreSQL (не используется платформенным liveness)."""
 
     try:
         async with engine.connect() as conn:
@@ -22,8 +29,12 @@ async def health() -> JSONResponse:
         payload = {"status": "ok", "database": "connected"}
         status_code = 200
     except SQLAlchemyError as exc:
-        logger.warning("healthcheck: база недоступна: %s", exc)
-        payload = {"status": "error", "database": "disconnected"}
+        logger.warning("health/db: база недоступна: %s", exc)
+        payload = {"status": "degraded", "database": "disconnected"}
+        status_code = 503
+    except Exception as exc:
+        logger.warning("health/db: ошибка подключения: %s", exc)
+        payload = {"status": "degraded", "database": "disconnected"}
         status_code = 503
 
     return JSONResponse(content=payload, status_code=status_code)

@@ -4,8 +4,9 @@ from app.core.logging import configure_logging
 
 configure_logging()
 
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -41,20 +42,29 @@ async def lifespan(_app: FastAPI):
     )
     logger.info("Приложение запущено: %s", settings.APP_NAME)
     if settings.TEST_MODE:
-        telegram_ready = bool(
-            (settings.TELEGRAM_BOT_TOKEN or "").strip()
-            and (settings.TELEGRAM_TEST_CHAT_ID or "").strip()
-        )
         logger.warning(
-            "SAFE TEST MODE ENABLED at startup — send-pending не шлёт на телефоны клиентов; "
-            "Telegram=%s; TEST_RECIPIENTS=%s; TELEGRAM_TEST_CHAT_ID=%s; макс. %s за запуск",
-            "ready" if telegram_ready else "not configured (fallback TEST SENDER)",
+            "SAFE TEST MODE ENABLED — send-pending не шлёт на телефоны клиентов; "
+            "TEST_RECIPIENTS=%s",
             settings.test_recipient_phones,
-            settings.TELEGRAM_TEST_CHAT_ID or "(empty)",
-            settings.SEND_PENDING_LIMIT,
         )
-    start_retention_scheduler()
+
+    async def _deferred_startup() -> None:
+        # Даём Amvera/Docker успеть получить 200 от /health до фоновых задач.
+        await asyncio.sleep(0.5)
+        if not settings.SCHEDULER_AUTOMATION_ENABLED:
+            logger.info("Scheduler automation disabled (SCHEDULER_AUTOMATION_ENABLED=false)")
+        try:
+            start_retention_scheduler()
+        except Exception:
+            logger.exception("Retention scheduler failed to start (non-fatal)")
+
+    startup_task = asyncio.create_task(_deferred_startup())
+
     yield
+
+    startup_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await startup_task
     shutdown_retention_scheduler()
     await engine.dispose()
     logger.info("Приложение остановлено")
