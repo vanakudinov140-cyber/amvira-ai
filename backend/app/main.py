@@ -73,6 +73,11 @@ async def lifespan(_app: FastAPI):
     )
     _log_registered_routes(_app)
     logger.info("Приложение запущено: %s", settings.APP_NAME)
+    logger.info(
+        "Окружение: %s, database host: %s",
+        settings.ENVIRONMENT,
+        settings.database_host,
+    )
     if settings.TEST_MODE:
         logger.warning(
             "SAFE TEST MODE ENABLED — send-pending не шлёт на телефоны клиентов; "

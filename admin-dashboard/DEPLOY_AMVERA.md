@@ -28,10 +28,14 @@ Amvera подхватит `admin-dashboard/amvera.yml` и `admin-dashboard/Docke
 
 ## 3. Переменные окружения
 
-Для production-сборки URL API зашивается в образ через `Dockerfile` (`ARG VITE_API_URL`).  
-При необходимости переопределите в Amvera **build args** (если поддерживаются) или измените `Dockerfile`.
+| Вопрос | Ответ |
+|--------|--------|
+| Root path в Amvera | **`admin-dashboard`** — обязательно |
+| Runtime env в Amvera UI | **Не нужны** |
+| Build-time env | `VITE_API_URL` в `Dockerfile` (по умолчанию production API) |
+| Отдельный `.env` на Amvera | Не требуется |
 
-Runtime-переменные для nginx **не нужны**.
+URL API зашивается при `docker build`. Для смены API — измените `ARG VITE_API_URL` в `Dockerfile` и пересоберите.
 
 ---
 

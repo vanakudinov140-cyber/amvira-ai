@@ -1,7 +1,6 @@
 import re
 from functools import lru_cache
 from typing import Self
-
 from pydantic import computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -16,6 +15,8 @@ class Settings(BaseSettings):
     APP_NAME: str = "AI Retention API"
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
+    # production — для Amvera: обязателен DATABASE_URL с внутренним хостом cnpg-*-rw
+    ENVIRONMENT: str = "development"
 
     POSTGRES_USER: str = "retention"
     POSTGRES_PASSWORD: str = "retention"
@@ -68,6 +69,21 @@ class Settings(BaseSettings):
         if not 0 <= value <= 23:
             raise ValueError("QUIET_HOURS_START/END должны быть в диапазоне 0–23 (UTC).")
         return value
+
+    @field_validator("ENVIRONMENT", mode="before")
+    @classmethod
+    def normalize_environment(cls, value: object) -> str:
+        if value is None:
+            return "development"
+        return str(value).strip().lower() or "development"
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def empty_database_url_is_none(cls, value: object) -> object | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return None if not text else text
 
     @field_validator("TEST_RECIPIENTS", mode="before")
     @classmethod
@@ -131,6 +147,25 @@ class Settings(BaseSettings):
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
+    @computed_field
+    @property
+    def database_host(self) -> str:
+        """Хост БД для логов (без пароля)."""
+        uri = self.sqlalchemy_database_uri
+        # postgresql+asyncpg://user:pass@host:5432/db
+        without_scheme = uri.split("://", 1)[-1]
+        if "@" in without_scheme:
+            host_part = without_scheme.rsplit("@", 1)[-1]
+        else:
+            host_part = without_scheme
+        host = host_part.split("/", 1)[0]
+        return host.split(":")[0] if host else "unknown"
+
+    @staticmethod
+    def _is_local_database_host(host: str) -> bool:
+        normalized = host.strip().lower()
+        return normalized in {"localhost", "127.0.0.1", "::1"}
+
     @model_validator(mode="after")
     def validate_database_configuration(self) -> Self:
         uri = self.sqlalchemy_database_uri.strip()
@@ -144,6 +179,23 @@ class Settings(BaseSettings):
                 "DATABASE_URL должен начинаться с postgresql+asyncpg:// "
                 "(async SQLAlchemy + asyncpg).",
             )
+
+        host = self.database_host
+        is_production = self.ENVIRONMENT == "production"
+
+        if is_production and not self.DATABASE_URL:
+            raise ValueError(
+                "ENVIRONMENT=production требует явный DATABASE_URL "
+                "(внутренний хост Amvera PostgreSQL, не POSTGRES_HOST по умолчанию).",
+            )
+
+        if is_production and self._is_local_database_host(host):
+            raise ValueError(
+                f"ENVIRONMENT=production: запрещён локальный хост БД ({host!r}). "
+                "Задайте DATABASE_URL с внутренним хостом Amvera "
+                "(amvera-<user>-cnpg-<project>-rw).",
+            )
+
         return self
 
 

@@ -59,7 +59,8 @@ postgresql+asyncpg://<user>:<password>@amvera-<user>-cnpg-<pg_project>-rw:5432/<
 
 | Переменная | Обязательно | Пример / описание |
 |------------|-------------|-------------------|
-| `DATABASE_URL` | да | `postgresql+asyncpg://user:pass@amvera-...-rw:5432/db` |
+| `ENVIRONMENT` | да | `production` |
+| `DATABASE_URL` | да | `postgresql+asyncpg://user:pass@amvera-...-rw:5432/db` (не localhost) |
 | `TEST_MODE` | да | `true` |
 | `TEST_RECIPIENTS` | да при TEST_MODE | `79991234567,79997654321` |
 | `TELEGRAM_BOT_TOKEN` | для Telegram TEST | токен бота |
@@ -75,9 +76,11 @@ postgresql+asyncpg://<user>:<password>@amvera-<user>-cnpg-<pg_project>-rw:5432/<
 | `SCHEDULER_AUTOMATION_ENABLED` | нет | `true` |
 | `SEND_PENDING_LIMIT` | нет | `5` |
 
-Полный список — в [.env.amvera.example](../.env.amvera.example).
+Полный список (обязательные / optional) — в [AMVERA_ENV.md](./AMVERA_ENV.md) и [.env.amvera.example](../.env.amvera.example).
 
-При старте контейнера выполняется `alembic upgrade head` (миграции).
+**Не задавайте** `POSTGRES_HOST` без `DATABASE_URL` — fallback `localhost` даёт `OSError: Connect call failed ('127.0.0.1', 5432)`.
+
+При старте контейнера: проверка `DATABASE_URL` → `alembic upgrade head` → uvicorn.
 
 ### 3.4. Сборка и запуск
 
@@ -111,7 +114,7 @@ GET https://<ваш-проект>.amvera.app/health/db
 Браузер / клиент → HTTPS (Amvera) → uvicorn:0.0.0.0:8000
 ```
 
-Admin-dashboard для production разворачивается отдельно (см. `docker-compose.demo.yml`) или локально через `npm run dev`.
+Admin-dashboard — **отдельный проект Amvera** с root path `admin-dashboard` (см. [admin-dashboard/DEPLOY_AMVERA.md](../admin-dashboard/DEPLOY_AMVERA.md)). Runtime env для фронта не нужны; API URL вшит в Docker build.
 
 ---
 
@@ -163,7 +166,8 @@ docker run --rm -p 8080:8000 --env-file backend/.env retention-crm:prod
 
 | Симптом | Решение |
 |---------|---------|
-| `503` на `/health`, database disconnected | Проверьте `DATABASE_URL`, доступность `-rw` хоста из проекта приложения |
+| `OSError: 127.0.0.1:5432` / localhost | Задайте `DATABASE_URL` с `amvera-*-cnpg-*-rw`; не используйте `POSTGRES_HOST` по умолчанию |
+| `503` на `/health/db` | Проверьте `DATABASE_URL`, доступность `-rw` хоста из проекта приложения, логи `alembic upgrade head` |
 | `502` / connection refused | Убедитесь, что `containerPort` и `servicePort` = **8000**, нет `run.command` в UI |
 | NestJS / старый корневой образ | Используйте актуальный `Dockerfile` из этого репозитория (retention CRM) |
 
