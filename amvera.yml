@@ -1,4 +1,4 @@
-# Retention CRM — production на Amvera (Docker, HTTP port 80)
+# Retention CRM — production на Amvera (Docker, HTTP port 8000)
 # https://docs.amvera.ru/applications/configuration/docker.html
 # Важно: не задавайте run.command в UI — используется ENTRYPOINT из Dockerfile
 
@@ -11,5 +11,5 @@ build:
   dockerfile: Dockerfile
 
 run:
-  containerPort: 80
-  servicePort: 80
+  containerPort: 8000
+  servicePort: 8000
