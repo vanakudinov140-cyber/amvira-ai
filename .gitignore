@@ -7,6 +7,10 @@
 backend/.env
 admin-dashboard/.env
 admin-dashboard/.env.local
+retention-admin-frontend/.env
+retention-admin-frontend/.env.local
+retention-admin-frontend/node_modules/
+retention-admin-frontend/dist/
 nestjs-api/.env
 nestjs-api/.env.*
 

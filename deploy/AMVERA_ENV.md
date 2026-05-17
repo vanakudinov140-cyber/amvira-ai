@@ -129,16 +129,18 @@ GET https://<api-project>.amvera.io/health/db
 
 ---
 
-## Frontend (admin-dashboard) — отдельный проект
+## Frontend — отдельный GitHub-репозиторий
 
 | Вопрос | Ответ |
 |--------|--------|
-| Root path в Amvera | **`admin-dashboard`** (обязательно) |
-| Отдельные env в runtime | **Нет** — API URL вшит при `docker build` (`VITE_API_URL` в `Dockerfile`) |
-| Backend env для фронта | Не нужны |
-| URL API | `https://retention-v2-ivankudinov.amvera.io` (в `admin-dashboard/Dockerfile`) |
+| Репозиторий | **`retention-admin-frontend`** (standalone, не monorepo) |
+| Root path в Amvera | **пусто** (корень repo) |
+| Runtime env | не нужны |
+| API URL | `VITE_API_URL` в корневом `Dockerfile` |
 
-См. `admin-dashboard/DEPLOY_AMVERA.md`.
+Экспорт из monorepo: `retention-admin-frontend/`.  
+Деплой: `retention-admin-frontend/DEPLOY_AMVERA.md`  
+Публикация: `scripts/publish-retention-admin-frontend.ps1`
 
 ---
 
