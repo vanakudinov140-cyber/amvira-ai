@@ -7,7 +7,7 @@ echo "[entrypoint] Alembic migrations..."
 alembic upgrade head
 
 echo "[entrypoint] Starting FastAPI (127.0.0.1:8000)..."
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips='*' &
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*' &
 API_PID=$!
 
 cleanup() {
