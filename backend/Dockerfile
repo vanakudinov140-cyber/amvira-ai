@@ -9,7 +9,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y nginx
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 
@@ -20,8 +22,6 @@ COPY alembic.ini .
 COPY alembic ./alembic
 COPY app ./app
 
-COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 8000
 
-EXPOSE 80
-
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8000 & nginx -g 'daemon off;'"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

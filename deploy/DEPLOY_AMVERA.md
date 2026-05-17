@@ -1,6 +1,6 @@
 # Деплой Retention CRM на Amvera
 
-Один Docker-образ: **production-сборка React** + **FastAPI** + **nginx** (порт **80**).  
+Один Docker-образ: **FastAPI (uvicorn)** на порту **8000**.  
 PostgreSQL — **отдельный managed-проект** в Amvera.  
 `docker-compose` на Amvera **не поддерживается**.
 
@@ -11,7 +11,7 @@ PostgreSQL — **отдельный managed-проект** в Amvera.
 | Проект | Тип | Назначение |
 |--------|-----|------------|
 | `retention-db` | **PostgreSQL** | База данных (тариф не ниже «Начальный») |
-| `retention-crm` | **Приложение** (Docker / Git) | Dashboard + API |
+| `retention-crm` | **Приложение** (Docker / Git) | API (uvicorn) |
 
 ---
 
@@ -39,9 +39,9 @@ postgresql+asyncpg://<user>:<password>@amvera-<user>-cnpg-<pg_project>-rw:5432/<
 
 В корне репозитория должны быть:
 
-- `Dockerfile` — production-образ
-- `amvera.yml` — порт **80**
-- `deploy/nginx.conf`, `deploy/docker-entrypoint.sh`
+- `Dockerfile` — production-образ (uvicorn)
+- `amvera.yml` — порт **8000**
+- `deploy/docker-entrypoint.sh`
 - `.env.amvera.example` — шаблон переменных
 
 **Не коммитьте** `backend/.env` с секретами.
@@ -71,7 +71,7 @@ postgresql+asyncpg://<user>:<password>@amvera-<user>-cnpg-<pg_project>-rw:5432/<
 | `FLOWSELL_API_KEY` | по необходимости | |
 | `LOG_LEVEL` | нет | `INFO` |
 | `DEBUG` | нет | `false` |
-| `CORS_ORIGINS` | обычно не нужен | `https://<app>.amvera.app` — только если API с другого origin |
+| `CORS_ORIGINS` | при отдельном фронте | `https://<frontend-host>` |
 | `SCHEDULER_AUTOMATION_ENABLED` | нет | `true` |
 | `SEND_PENDING_LIMIT` | нет | `5` |
 
@@ -82,15 +82,16 @@ postgresql+asyncpg://<user>:<password>@amvera-<user>-cnpg-<pg_project>-rw:5432/<
 ### 3.4. Сборка и запуск
 
 1. **Сборка** — автоматически после push в Git или кнопка «Собрать».
-2. Первая сборка ~5–10 мин (npm + pip).
+2. Первая сборка ~3–5 мин (pip).
 3. **Запуск** — после успешного образа.
+
+**Не задавайте** `run.command` в UI Amvera — используется `ENTRYPOINT` из Dockerfile.
 
 ### 3.5. Публичный URL (HTTPS)
 
 1. **Настройки** → **Сеть** / **Домены**.
 2. Включите **бесплатное доменное имя Amvera** или привяжите своё.
-3. Откройте `https://<ваш-проект>.amvera.app` — dashboard.
-4. API на том же origin: `https://<ваш-проект>.amvera.app/health`, `/analytics/...`, `/messages/...`.
+3. API: `https://<ваш-проект>.amvera.app/health`, `/analytics/...`, `/messages/...`, `/docs`.
 
 Проверка:
 
@@ -101,15 +102,13 @@ GET https://<ваш-проект>.amvera.app/health
 
 ---
 
-## 4. Архитектура (same-origin)
+## 4. Архитектура
 
 ```text
-Браузер → HTTPS (Amvera) → nginx:80
-                              ├─ /          → React static (dist)
-                              └─ /health, /analytics, /messages, … → uvicorn:127.0.0.1:8000
+Браузер / клиент → HTTPS (Amvera) → uvicorn:0.0.0.0:8000
 ```
 
-`VITE_API_URL` при сборке пустой — запросы идут на тот же хост (без CORS-проблем).
+Admin-dashboard для production разворачивается отдельно (см. `docker-compose.demo.yml`) или локально через `npm run dev`.
 
 ---
 
@@ -117,9 +116,9 @@ GET https://<ваш-проект>.amvera.app/health
 
 | Где | Порт |
 |-----|------|
-| Контейнер приложения | **80** (`containerPort` в `amvera.yml`) |
+| Контейнер приложения | **8000** (`containerPort` в `amvera.yml`) |
 | PostgreSQL (внутренний) | **5432** |
-| Снаружи | только **443/80** у Amvera (прокси платформы) |
+| Снаружи | HTTPS у Amvera (прокси платформы → 8000) |
 
 ---
 
@@ -136,10 +135,10 @@ GET https://<ваш-проект>.amvera.app/health
 ```powershell
 cd <корень репозитория>
 docker build -t retention-crm:prod .
-docker run --rm -p 8080:80 --env-file backend/.env retention-crm:prod
+docker run --rm -p 8080:8000 --env-file backend/.env retention-crm:prod
 ```
 
-Откройте `http://localhost:8080` и `http://localhost:8080/health`.
+Откройте `http://localhost:8080/health`.
 
 `DATABASE_URL` должен указывать на доступную с хоста БД.
 
@@ -149,9 +148,7 @@ docker run --rm -p 8080:80 --env-file backend/.env retention-crm:prod
 
 - [x] FastAPI + uvicorn, миграции Alembic при старте
 - [x] PostgreSQL через `DATABASE_URL` (asyncpg)
-- [x] Frontend: `npm run build`, не dev-сервер
-- [x] nginx reverse proxy, same-origin API
-- [x] Healthcheck `GET /health` (в т.ч. в Dockerfile)
+- [x] Healthcheck `GET /health` на `:8000`
 - [x] `TEST_MODE=true` в шаблоне env
 - [ ] Заполнить секреты в Amvera
 - [ ] Создать PostgreSQL и связать `DATABASE_URL`
@@ -164,9 +161,7 @@ docker run --rm -p 8080:80 --env-file backend/.env retention-crm:prod
 | Симптом | Решение |
 |---------|---------|
 | `503` на `/health`, database disconnected | Проверьте `DATABASE_URL`, доступность `-rw` хоста из проекта приложения |
-| Сборка падает на `npm ci` | Закоммитьте `admin-dashboard/package-lock.json` |
-| Пустой dashboard | Смотрите логи сборки; проверьте, что `dist` попал в образ |
-| CORS в браузере | Убедитесь, что фронт ходит на same-origin (`VITE_API_URL` пустой в Dockerfile) |
+| `502` / connection refused | Убедитесь, что `containerPort` и `servicePort` = **8000**, нет `run.command` в UI |
 | NestJS / старый корневой образ | Используйте актуальный `Dockerfile` из этого репозитория (retention CRM) |
 
 ---
@@ -174,8 +169,8 @@ docker run --rm -p 8080:80 --env-file backend/.env retention-crm:prod
 ## 10. Push для деплоя (кратко)
 
 ```bash
-git add Dockerfile amvera.yml deploy/ .env.amvera.example .dockerignore
-git commit -m "Add Amvera production deployment for retention CRM"
+git add Dockerfile amvera.yml deploy/ .env.amvera.example docker-compose.prod.yml
+git commit -m "Remove nginx from production deploy, uvicorn only on port 8000"
 git push origin main
 ```
 
