@@ -6,12 +6,14 @@ configure_logging()
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.api.routes.analytics import router as analytics_router
 from app.api.routes.scheduler import router as scheduler_router
@@ -34,12 +36,42 @@ from app.scheduler import shutdown_retention_scheduler, start_retention_schedule
 logger = logging.getLogger(__name__)
 
 
+def _log_registered_routes(application: FastAPI) -> None:
+    """Диагностика: все зарегистрированные пути при старте (Amvera/Docker logs)."""
+    logger.info(
+        "FastAPI instance: %s (id=%s), routes=%s",
+        type(application).__name__,
+        id(application),
+        len(application.routes),
+    )
+    for route in application.routes:
+        path = getattr(route, "path", None)
+        if path is None:
+            continue
+        print(f"[routes] {path}", flush=True)
+        logger.info("Registered route: %s", path)
+
+
+class RootPathNormalizeMiddleware:
+    """Amvera reverse proxy: X-Forwarded-Prefix не должен ломать /health, /docs и API."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            forced = os.getenv("ROOT_PATH", "").strip().rstrip("/")
+            scope["root_path"] = forced if forced else ""
+        await self.app(scope, receive, send)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     settings = get_settings()
     logging.getLogger().setLevel(
         getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
     )
+    _log_registered_routes(_app)
     logger.info("Приложение запущено: %s", settings.APP_NAME)
     if settings.TEST_MODE:
         logger.warning(
@@ -76,10 +108,13 @@ def create_app() -> FastAPI:
         getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
     )
 
+    root_path = os.getenv("ROOT_PATH", "").strip().rstrip("/")
+
     application = FastAPI(
         title=settings.APP_NAME,
         lifespan=lifespan,
         debug=settings.DEBUG,
+        root_path=root_path,
     )
 
     application.add_middleware(
@@ -89,6 +124,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    application.add_middleware(RootPathNormalizeMiddleware)
 
     application.add_exception_handler(HTTPException, http_exception_handler)
     application.add_exception_handler(RequestValidationError, request_validation_exception_handler)
@@ -103,7 +139,13 @@ def create_app() -> FastAPI:
     application.include_router(debug_router)
     application.include_router(analytics_router)
     application.include_router(scheduler_router)
+
+    @application.get("/", tags=["health"], include_in_schema=False)
+    def root() -> dict[str, str]:
+        return {"status": "ok", "docs": "/docs", "health": "/health"}
+
     return application
 
 
 app = create_app()
+assert isinstance(app, FastAPI), "app.main:app must be a FastAPI instance"
