@@ -1,11 +1,12 @@
-# Git deploy / Docker build context (корень репозитория)
+# Docker build context — только retention backend (корень monorepo)
 .git
 .gitignore
+.gitattributes
+
 **/.env
 **/.env.local
 **/.env.*
 !**/.env.example
-!**/.env.production
 !.env.amvera.example
 
 **/node_modules
@@ -17,16 +18,21 @@
 **/.venv
 **/venv
 
+# Другие проекты monorepo — не участвуют в образе API
+admin-dashboard/
 nestjs-api/
+museum-visitor-registration/
+AvatarArena_VK_Raffle_Package/
 Бот*/
-AvatarArena*/
 отслеживание*/
 demo-public-url.txt
 cloudflared-tunnel.log
 scripts/cloudflared.exe
 terminals/
 
-admin-dashboard/dist
-backend/README.md
+Dockerfile.legacy
+docker-compose*.yml
+.vscode/
+
 **/*.md
 !deploy/DEPLOY_AMVERA.md
