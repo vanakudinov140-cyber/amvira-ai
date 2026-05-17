@@ -1,12 +1,13 @@
+# Retention CRM — production на Amvera (Docker, порт 80)
+# https://docs.amvera.ru/applications/configuration/docker.html
+
 meta:
   environment: docker
-  toolchain: docker
+  toolchain:
+    name: docker
 
 build:
   dockerfile: Dockerfile
 
 run:
-  command: npm run start:prod
-
-network:
-  port: 3000
+  containerPort: 80

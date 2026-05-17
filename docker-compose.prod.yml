@@ -1,0 +1,36 @@
+# Локальный прогон production-образа (как на Amvera). Не для деплоя на Amvera.
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   http://localhost:8080
+
+name: retention-prod-local
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
+        VITE_ENV_LABEL: ${VITE_ENV_LABEL:-Тестовый режим}
+    ports:
+      - "8080:80"
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://retention:retention@db:5432/retention}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-retention}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-retention}
+      POSTGRES_DB: ${POSTGRES_DB:-retention}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-retention} -d ${POSTGRES_DB:-retention}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

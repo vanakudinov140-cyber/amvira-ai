@@ -1,9 +1,41 @@
-# Корень монорепозитория — артефакты деплоя / локальная разработка nestjs-api
+# Secrets & local env
+.env
+.env.local
+.env.*.local
+!.env.amvera.example
+!.env.demo.example
+backend/.env
+admin-dashboard/.env
+admin-dashboard/.env.local
+nestjs-api/.env
+nestjs-api/.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Demo / tunnel (local only)
+demo-public-url.txt
+cloudflared-tunnel.log
+scripts/cloudflared.exe
+
+# IDE
+.idea/
+*.swp
+
+# NestJS (legacy in monorepo)
 nestjs-api/node_modules/
 nestjs-api/dist/
 nestjs-api/coverage/
-nestjs-api/.env
-nestjs-api/.env.local
-nestjs-api/.env.production
-nestjs-api/.env.amvera
-nestjs-api/.env.*.local

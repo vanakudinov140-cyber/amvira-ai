@@ -1,0 +1,84 @@
+# Стабильный demo-стек: PostgreSQL + API + production dashboard (nginx)
+# Запуск из корня репозитория:
+#   docker compose -f docker-compose.demo.yml up -d --build
+#
+# Dashboard: http://<LAN-IP>:8080
+# API напрямую: http://<LAN-IP>:8000
+
+name: retention-demo
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-retention}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-retention}
+      POSTGRES_DB: ${POSTGRES_DB:-retention}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-retention} -d ${POSTGRES_DB:-retention}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-retention}:${POSTGRES_PASSWORD:-retention}@db:5432/${POSTGRES_DB:-retention}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080,http://10.114.112.117:8080}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./admin-dashboard
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
+        VITE_ENV_LABEL: ${VITE_ENV_LABEL:-Тестовый режим}
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Quick Tunnel (trycloudflare.com) — часто нестабилен в Docker/WSL; лучше scripts/start-public-tunnel.ps1
+  cloudflared-quick:
+    image: cloudflare/cloudflared:latest
+    profiles: ["public"]
+    command: tunnel --no-autoupdate --protocol http2 --url http://dashboard:80
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - dashboard
+    restart: unless-stopped
+
+  # Именованный tunnel (стабильный URL) — нужен CLOUDFLARE_TUNNEL_TOKEN в .env
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["named-tunnel"]
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - dashboard
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    name: backend_postgres_data
+    external: true

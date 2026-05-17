@@ -1,0 +1,5 @@
+"""Read-only analytics для retention."""
+
+from app.services.analytics.service import AnalyticsService
+
+__all__ = ("AnalyticsService",)

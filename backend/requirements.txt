@@ -1,0 +1,16 @@
+# FastAPI & server
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+httpx==0.28.1
+
+# Database (async SQLAlchemy + PostgreSQL)
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+
+# Configuration
+python-dotenv==1.0.1
+pydantic-settings==2.6.1
+
+# Scheduler
+apscheduler==3.10.4
