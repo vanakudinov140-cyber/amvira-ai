@@ -8,10 +8,35 @@ import type {
   ModerationInsights,
   AiPerformance,
   ModerationQueueResponse,
+  PendingMessagesResponse,
+  RetentionCandidatesResponse,
   RetentionOverview,
   SchedulerStatus,
   SendPendingResponse,
+  SyncResponse,
 } from "@/types/api";
+
+export async function syncClients(): Promise<SyncResponse> {
+  const { data } = await apiClient.post<SyncResponse>("/sync/clients");
+  return data;
+}
+
+export async function syncVisits(): Promise<SyncResponse> {
+  const { data } = await apiClient.post<SyncResponse>("/sync/visits");
+  return data;
+}
+
+export async function fetchRetentionCandidates(): Promise<RetentionCandidatesResponse> {
+  const { data } = await apiClient.get<RetentionCandidatesResponse>(
+    "/retention/candidates",
+  );
+  return data;
+}
+
+export async function fetchPendingMessages(): Promise<PendingMessagesResponse> {
+  const { data } = await apiClient.get<PendingMessagesResponse>("/messages/pending");
+  return data;
+}
 
 export async function fetchRetentionOverview(): Promise<RetentionOverview> {
   const { data } = await apiClient.get<RetentionOverview>(

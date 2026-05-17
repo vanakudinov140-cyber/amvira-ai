@@ -1,3 +1,27 @@
+export interface SyncResponse {
+  success?: boolean;
+  synced: number;
+}
+
+export interface RetentionCandidate {
+  client_id: number;
+  client_name: string;
+  procedure_name: string;
+  last_visit_date: string;
+  days_since_visit: number;
+  recommended_action: string;
+  recommended_channel: string;
+}
+
+export interface RetentionCandidatesResponse {
+  count: number;
+  items: RetentionCandidate[];
+}
+
+export interface PendingMessagesResponse {
+  items: MessageItem[];
+}
+
 export type MessageStatus =
   | "pending"
   | "approved"
