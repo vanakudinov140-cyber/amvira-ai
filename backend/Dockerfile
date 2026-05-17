@@ -9,9 +9,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y nginx
+
 RUN useradd --create-home --shell /bin/bash appuser
 
 COPY requirements.txt .
+
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt \
     && pip cache purge \
@@ -20,6 +23,8 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY alembic.ini .
 COPY alembic ./alembic
 COPY app ./app
+
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 
 RUN find /app -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
