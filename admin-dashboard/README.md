@@ -29,7 +29,8 @@ npm run dev
 
 | Переменная | Описание |
 |------------|----------|
-| `VITE_API_BASE_URL` | URL backend API (по умолчанию `http://127.0.0.1:8000`) |
+| `VITE_API_URL` | URL backend API (production: `https://retention-v2-ivankudinov.amvera.io`) |
+| `VITE_ENV_LABEL` | Подпись окружения в шапке |
 
 ## Возможности UI
 
@@ -47,6 +48,12 @@ npm run build
 npm run preview
 ```
 
+## Деплой на Amvera
+
+См. [DEPLOY_AMVERA.md](./DEPLOY_AMVERA.md).
+
+Ожидаемый URL после деплоя: **https://retention-admin-ivankudinov.amvera.app**
+
 ## CORS
 
-Backend должен разрешать origin `http://127.0.0.1:5173` (уже настроено в `backend/app/main.py`).
+Backend разрешает `*.amvera.io` и `*.amvera.app` (regex в `backend/app/main.py`) и локальные порты Vite.

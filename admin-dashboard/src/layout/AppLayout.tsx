@@ -1,4 +1,5 @@
 ﻿import { NavLink, Outlet } from "react-router-dom";
+import { ApiStatusBadge } from "@/components/ApiStatusBadge";
 import { ENV_LABEL } from "@/constants";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,7 @@ export function AppLayout() {
             <Badge variant="outline" className="border-amber-500/50 text-amber-200">
               {ENV_LABEL}
             </Badge>
+            <ApiStatusBadge />
           </div>
           <nav className="flex flex-wrap gap-1">
             {NAV.map(({ to, label, end }) => (
