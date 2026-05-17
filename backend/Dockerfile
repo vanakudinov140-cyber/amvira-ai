@@ -11,23 +11,17 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y nginx
 
-RUN useradd --create-home --shell /bin/bash appuser
-
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt \
-    && pip cache purge \
-    && find /usr/local/lib/python3.12 -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY alembic.ini .
 COPY alembic ./alembic
 COPY app ./app
 
-COPY развертывать/nginx.conf /etc/nginx/conf.d/default.conf
-
-RUN find /app -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
-CMD sh -c "nginx && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8000 & nginx -g 'daemon off;'"]
