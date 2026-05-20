@@ -63,8 +63,10 @@ def test_catalog_selects_reminder_timing_templates() -> None:
 
     assert reminder_24h.template_id == "reminder_24h_template"
     assert reminder_2h.template_id == "reminder_2h_template"
-    assert "завтра" in reminder_24h.text
+    assert "через 24 часа" in reminder_24h.text
     assert "через 2 часа" in reminder_2h.text
+    assert "ВНЕ РАМОК" in reminder_24h.text
+    assert "ВНЕ РАМОК" in reminder_2h.text
     assert not reminder_24h.missing_placeholders
     assert not reminder_2h.missing_placeholders
 

@@ -24,7 +24,7 @@
       "event": "reminder_24h",
       "service_types": ["default"],
       "title": "Напоминание за 24 часа",
-      "text": "{client_name}, здравствуйте!\n\nНапоминаем о вашей записи завтра 💬\n\nУслуга: {service_name}\nДата и время: {appointment_date} в {appointment_time}\nМастер: {master_name}\n\nЕсли нужно изменить или отменить запись, используйте ссылку:\n{booking_link}\n\nДо встречи в салоне!",
+      "text": "{client_name}, добрый день ☀️\n\nЭто бьюти-пространство «ВНЕ РАМОК». Напоминаем, что через 24 часа у вас запланирована процедура «{service_name}» 🤩\n\nПожалуйста, подтвердите свою запись, перейдя по ссылке ниже и нажав кнопку «Подтвердить» — это займёт всего секунду, но поможет нам подготовиться к вашей встрече с душой 💚\n\nЕсли по какой-то причине не получается прийти – просто напишите нам, отменим или перенесём без проблем. На ваше время действительно есть желающие, поэтому неподтверждённая запись будет вынужденно освобождена.\n\n📅 Дата: {appointment_date}\n⏰ Время: {appointment_time}\n💆‍♀️ Мастер: {master_name}\n💇 Услуга: {service_name}\n\n🔗 Подтверждение и детали записи:\n{booking_link}\n\n📍 Как к нам добраться:\nКазань, ул. Сибгата Хакима, 17\n\n📞 Телефон:\n+7 993 063 6360\n\n🗺️ Карта:\nclck.ru/3BDCZa\n\nНаши официальные источники:\n\n📸 Instagram:\ninstagram.com/vneramok.kzn\n\n📱 Telegram:\nt.me/vneramok_kzn\n\n📘 ВКонтакте:\nvk.com/vneramok_kzn\n\nБудем рады видеть вас в пространстве, где границы существуют, чтобы их расширять 💚\n\nЖдём вашего подтверждения или сообщения 🌸",
       "placeholders": ["client_name", "service_name", "appointment_date", "appointment_time", "master_name", "booking_link"]
     },
     {
@@ -33,8 +33,8 @@
       "event": "reminder_2h",
       "service_types": ["default"],
       "title": "Напоминание за 2 часа",
-      "text": "{client_name}, здравствуйте!\n\nНапоминаем: ваша запись уже сегодня через 2 часа ⏰\n\nУслуга: {service_name}\nВремя: {appointment_time}\nМастер: {master_name}\n\nАдрес и детали записи можно посмотреть по ссылке:\n{booking_link}\n\nЖдём вас!",
-      "placeholders": ["client_name", "service_name", "appointment_time", "master_name", "booking_link"]
+      "text": "{client_name}, добрый день ☀️\n\nЭто бьюти-пространство «ВНЕ РАМОК». Напоминаем, что через 2 часа у вас запланирована процедура «{service_name}» 🤩\n\nУже совсем скоро увидимся! Приходите – мы ждём вас, чтобы вместе сделать то, что вам давно хотелось, бережно и с душой 💚\n\n📅 Дата: {appointment_date}\n⏰ Время: {appointment_time}\n💆‍♀️ Мастер: {master_name}\n💇 Услуга: {service_name}\n\n🔗 Детали записи:\n{booking_link}\n\n📍 Как к нам добраться:\nКазань, ул. Сибгата Хакима, 17\n\n📞 Телефон:\n+7 993 063 6360\n\n🗺️ Карта:\nclck.ru/3BDCZa\n\nНаши официальные источники:\n\n📸 Instagram:\ninstagram.com/vneramok.kzn\n\n📱 Telegram:\nt.me/vneramok_kzn\n\n📘 ВКонтакте:\nvk.com/vneramok_kzn\n\nДо встречи в пространстве, где границы существуют, чтобы их расширять 💚\n\nЕсли вдруг что-то изменилось – просто напишите, мы рядом 🌸",
+      "placeholders": ["client_name", "service_name", "appointment_date", "appointment_time", "master_name", "booking_link"]
     },
     {
       "id": "review_default_template",

@@ -41,6 +41,9 @@
   - Russian labels and scenario names for lifecycle/reminder test sends
   - reminder scenarios `reminder_24h` and `reminder_2h` in `/test/flowsell-demo`
   - hides raw JSON/debug output and shows readable send status, message preview, warnings and validation errors
+- Production reminder template polishing:
+  - replaced `reminder_24h_template` and `reminder_2h_template` with customer-approved “ВНЕ РАМОК” WhatsApp copy
+  - preserved deterministic placeholders, spacing, emoji and dry-run-only rollout safety
 
 ### Notes
 - Real sends remain disabled by default (`FLOWSELL_DRY_RUN=true`, `TEST_MODE` unchanged).
