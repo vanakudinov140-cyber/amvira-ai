@@ -7,6 +7,10 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from app.api.deps import SessionDep
+from app.scheduler.delivery_orchestration import (
+    OrchestrationPreviewInput,
+    build_delivery_orchestration_preview,
+)
 from app.scheduler.dry_run_planner import PlannerInput, build_scheduler_dry_run_plan
 from app.scheduler.execution_preview import (
     SchedulerExecutionPreviewInput,
@@ -2200,6 +2204,150 @@ GUARDED_AUTOMATION_HTML = """
 """
 
 
+ORCHESTRATION_PREVIEW_HTML = """
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Delivery orchestration preview</title>
+  <style>
+    :root {
+      --bg: #f6f8fc; --card: #ffffff; --text: #172033; --muted: #667085;
+      --border: #dfe5ef; --primary: #2563eb; --success: #047857; --danger: #b91c1c;
+      --warning-bg: #fff7ed; --warning-border: #fed7aa; --badge: #eef4ff; --badge-border: #c7d7fe;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      background: radial-gradient(circle at top left, #eaf1ff, transparent 34%), var(--bg);
+      color: var(--text); font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    main { width: min(1180px, calc(100% - 28px)); margin: 28px auto; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 26px; box-shadow: 0 20px 55px rgba(23,32,51,.08); }
+    h1 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 34px); letter-spacing: -.03em; }
+    h2 { margin: 22px 0 10px; font-size: 18px; }
+    p { margin: 0; color: var(--muted); }
+    .badges { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0; }
+    .badge { border: 1px solid var(--badge-border); border-radius: 999px; background: var(--badge); color: #1e3a8a; font-weight: 800; padding: 8px 12px; font-size: 13px; }
+    .notice { margin: 18px 0; padding: 14px 16px; border-radius: 16px; background: var(--warning-bg); border: 1px solid var(--warning-border); color: #7c2d12; font-weight: 650; }
+    form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+    label { display: grid; gap: 7px; font-weight: 650; color: #263246; }
+    input, select { width: 100%; min-height: 46px; border: 1px solid var(--border); border-radius: 13px; padding: 11px 13px; font: inherit; background: #fff; }
+    button { border: 0; border-radius: 13px; padding: 13px 20px; background: var(--primary); color: #fff; cursor: pointer; font: inherit; font-weight: 750; min-height: 48px; }
+    button:disabled { opacity: .65; cursor: wait; }
+    .actions { grid-column: 1 / -1; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .status { min-height: 24px; font-weight: 750; }
+    .status.error { color: var(--danger); } .status.success { color: var(--success); }
+    .result { margin-top: 22px; display: none; border-top: 1px solid var(--border); padding-top: 20px; }
+    .result.visible { display: block; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+    .metric, .panel { border: 1px solid var(--border); border-radius: 15px; padding: 13px; background: #fbfcff; }
+    .metric span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+    .panel { margin-top: 12px; }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    @media (max-width: 860px) { main { width: min(100% - 20px, 1180px); margin: 10px auto; } .card { padding: 18px; } form, .grid { grid-template-columns: 1fr; } button { width: 100%; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Delivery orchestration preview</h1>
+      <p>Read-only симуляция бизнес-цепочки доставки: MAX → Telegram → WhatsApp. WhatsApp здесь только fallback, не primary channel.</p>
+      <div class="badges">
+        <div class="badge">MAX primary</div>
+        <div class="badge">Telegram fallback</div>
+        <div class="badge">WhatsApp fallback</div>
+        <div class="badge">No real fallback sends</div>
+      </div>
+      <div class="notice">Страница не вызывает MAX/Telegram/WhatsApp adapters, не меняет automation state и не запускает background execution.</div>
+      <form id="orchestrationForm">
+        <label>Кандидаты<select id="flow_type"><option value="all">Отзывы и напоминания</option><option value="review">Только отзывы</option><option value="reminder">Только напоминания</option></select></label>
+        <label>Лимит кандидатов<input id="max_candidates" type="number" min="1" max="50" value="10" /></label>
+        <label>Горизонт напоминаний, часов<input id="reminder_horizon_hours" type="number" min="1" max="168" value="24" /></label>
+        <label>Симулировать отказ<select id="simulate_failed_channel"><option value="max">MAX</option><option value="telegram">Telegram</option><option value="whatsapp">WhatsApp</option><option value="">Без отказа</option></select></label>
+        <div class="actions"><button type="submit">Построить orchestration preview</button><div id="status" class="status"></div></div>
+      </form>
+      <section id="result" class="result">
+        <h2>Channel selection</h2>
+        <div class="grid">
+          <div class="metric"><span>Primary channel</span><strong id="primary">-</strong></div>
+          <div class="metric"><span>Fallback chain</span><strong id="fallbackChain">-</strong></div>
+          <div class="metric"><span>Simulated failure</span><strong id="failure">-</strong></div>
+          <div class="metric"><span>Next fallback</span><strong id="nextFallback">-</strong></div>
+        </div>
+        <h2>Would-send flags</h2>
+        <div class="grid">
+          <div class="metric"><span>would_send_to_max</span><strong id="sendMax">false</strong></div>
+          <div class="metric"><span>would_fallback_to_telegram</span><strong id="fallbackTelegram">false</strong></div>
+          <div class="metric"><span>would_fallback_to_whatsapp</span><strong id="fallbackWhatsapp">false</strong></div>
+          <div class="metric"><span>Eligible candidates</span><strong id="eligible">0</strong></div>
+        </div>
+        <div class="panel"><h2>Selected candidate</h2><div id="candidate">-</div></div>
+        <div class="panel"><h2>Delivery priority</h2><ul id="priority"></ul></div>
+        <div class="panel"><h2>Why channel selected</h2><ul id="why"></ul></div>
+        <div class="panel"><h2>Failover reasoning</h2><ul id="failover"></ul></div>
+        <div class="panel"><h2>Orchestration reasoning</h2><ul id="reasoning"></ul></div>
+        <div class="panel"><h2>Safety guards</h2><ul id="safety"></ul></div>
+      </section>
+    </section>
+  </main>
+  <script>
+    const form = document.getElementById("orchestrationForm");
+    const result = document.getElementById("result");
+    const statusEl = document.getElementById("status");
+    const setStatus = (text, type = "") => { statusEl.textContent = text; statusEl.className = `status ${type}`.trim(); };
+    const setText = (id, value) => { document.getElementById(id).textContent = value ?? "-"; };
+    const list = (items) => (items || []).map((item) => `<li>${item}</li>`).join("") || "<li>Нет данных</li>";
+    const objectList = (obj) => Object.entries(obj || {}).map(([key, value]) => `<li>${key}: ${value}</li>`).join("") || "<li>Нет данных</li>";
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = form.querySelector("button");
+      button.disabled = true; setStatus("Строим read-only orchestration preview...");
+      result.classList.remove("visible");
+      try {
+        const failed = document.getElementById("simulate_failed_channel").value;
+        const payload = {
+          flow_type: document.getElementById("flow_type").value,
+          max_candidates: Number(document.getElementById("max_candidates").value || 10),
+          reminder_horizon_hours: Number(document.getElementById("reminder_horizon_hours").value || 24),
+          simulate_failed_channel: failed || null,
+        };
+        const response = await fetch("/scheduler/orchestration-preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Не удалось построить orchestration preview.");
+        setText("primary", data.selected_primary_channel);
+        setText("fallbackChain", (data.fallback_chain || []).join(" → "));
+        setText("failure", data.simulated_channel_failure || "нет");
+        setText("nextFallback", data.next_fallback_channel || "нет");
+        setText("sendMax", String(data.would_send_to_max));
+        setText("fallbackTelegram", String(data.would_fallback_to_telegram));
+        setText("fallbackWhatsapp", String(data.would_fallback_to_whatsapp));
+        setText("eligible", data.eligible_candidates_found);
+        const candidate = data.selected_candidate;
+        document.getElementById("candidate").innerHTML = candidate
+          ? `<strong>${candidate.client_name}</strong>, ${candidate.service_name}<br>event=${candidate.matched_event || "-"} | template=${candidate.selected_template || "-"}`
+          : "Eligible candidate не выбран.";
+        document.getElementById("priority").innerHTML = objectList(data.delivery_priority);
+        document.getElementById("why").innerHTML = list(data.why_channel_selected);
+        document.getElementById("failover").innerHTML = list(data.channel_failover_reasoning);
+        document.getElementById("reasoning").innerHTML = list(data.orchestration_reasoning);
+        document.getElementById("safety").innerHTML = list(data.safety_guards);
+        result.classList.add("visible");
+        setStatus("Preview готов. Real sends и adapters не вызывались.", "success");
+      } catch (error) {
+        setStatus(error.message || "Ошибка orchestration preview.", "error");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
+"""
+
+
 class SchedulerToggleRequest(BaseModel):
     enabled: bool
 
@@ -2242,6 +2390,10 @@ class SchedulerExecutionPreviewRequest(BaseModel):
     flow_type: str = "all"
     max_candidates: int = 10
     reminder_horizon_hours: int = 24
+
+
+class SchedulerOrchestrationPreviewRequest(SchedulerExecutionPreviewRequest):
+    simulate_failed_channel: str | None = "max"
 
 
 class SchedulerManualCycleRequest(SchedulerExecutionPreviewRequest):
@@ -2321,6 +2473,50 @@ class SchedulerExecutionPreviewResponse(BaseModel):
     plans: list[SchedulerExecutionCandidatePlanResponse]
     safety_guards: list[str]
     execution_reasoning: list[str]
+
+
+class SchedulerOrchestrationCandidateResponse(BaseModel):
+    record_id: int
+    yclients_record_id: int
+    client_name: str
+    service_name: str
+    flow_type: str
+    matched_event: str | None
+    selected_template: str | None
+    would_send: bool
+    blocked_by_guard: bool
+    guard_errors: list[str]
+
+
+class SchedulerOrchestrationPreviewResponse(BaseModel):
+    read_only: bool
+    manual_trigger_only: bool
+    orchestration_preview_only: bool
+    selected_primary_channel: str
+    fallback_chain: list[str]
+    simulated_channel_failure: str | None
+    next_fallback_channel: str | None
+    would_send_to_max: bool
+    would_fallback_to_telegram: bool
+    would_fallback_to_whatsapp: bool
+    delivery_priority: dict[str, int]
+    escalation_order: list[str]
+    why_channel_selected: list[str]
+    channel_failover_reasoning: list[str]
+    orchestration_reasoning: list[str]
+    candidates_found: int
+    eligible_candidates_found: int
+    selected_candidate: SchedulerOrchestrationCandidateResponse | None
+    safety_guards: list[str]
+    provider_access: bool
+    send_adapter_called: bool
+    send_pipeline_called: bool
+    background_execution: bool
+    cron_execution: bool
+    queue_execution: bool
+    bulk_execution: bool
+    automation_enabled_before: bool
+    automation_enabled_after: bool
 
 
 class SchedulerManualCycleSkippedCandidateResponse(BaseModel):
@@ -2596,6 +2792,12 @@ async def scheduler_execution_preview_page() -> HTMLResponse:
     return HTMLResponse(EXECUTION_PREVIEW_HTML)
 
 
+@router.get("/orchestration-preview", response_class=HTMLResponse, include_in_schema=False)
+async def scheduler_orchestration_preview_page() -> HTMLResponse:
+    """Human-friendly UI for read-only delivery orchestration preview."""
+    return HTMLResponse(ORCHESTRATION_PREVIEW_HTML)
+
+
 @router.get("/manual-cycle", response_class=HTMLResponse, include_in_schema=False)
 async def scheduler_manual_cycle_page() -> HTMLResponse:
     """Human-friendly UI for isolated manual single-cycle scheduler execution."""
@@ -2653,6 +2855,24 @@ async def scheduler_execution_preview(
         ),
     )
     return SchedulerExecutionPreviewResponse(**result.to_dict())
+
+
+@router.post("/orchestration-preview", response_model=SchedulerOrchestrationPreviewResponse)
+async def scheduler_orchestration_preview(
+    body: SchedulerOrchestrationPreviewRequest,
+    db: SessionDep,
+) -> SchedulerOrchestrationPreviewResponse:
+    """Read-only delivery orchestration simulation. Never sends or calls channel adapters."""
+    result = await build_delivery_orchestration_preview(
+        db,
+        OrchestrationPreviewInput(
+            flow_type=body.flow_type,
+            max_candidates=body.max_candidates,
+            reminder_horizon_hours=body.reminder_horizon_hours,
+            simulate_failed_channel=body.simulate_failed_channel,  # type: ignore[arg-type]
+        ),
+    )
+    return SchedulerOrchestrationPreviewResponse(**result.to_dict())
 
 
 @router.post("/manual-cycle", response_model=SchedulerManualCycleResponse)
