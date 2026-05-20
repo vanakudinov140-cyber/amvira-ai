@@ -12,6 +12,10 @@ from app.scheduler.execution_preview import (
     SchedulerExecutionPreviewInput,
     build_scheduler_execution_preview,
 )
+from app.scheduler.guarded_automation import (
+    GuardedAutomationInput,
+    execute_guarded_automation_cycle,
+)
 from app.scheduler.manual_cycle import ManualCycleInput, execute_manual_scheduler_cycle
 from app.scheduler.monitoring import build_scheduler_monitoring_snapshot
 from app.scheduler import setup as scheduler_setup
@@ -2062,6 +2066,140 @@ MONITORING_HTML = """
 """
 
 
+GUARDED_AUTOMATION_HTML = """
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guarded automation</title>
+  <style>
+    :root {
+      --bg: #f6f8fc; --card: #ffffff; --text: #172033; --muted: #667085;
+      --border: #dfe5ef; --primary: #2563eb; --danger: #b91c1c; --success: #047857;
+      --warning-bg: #fff7ed; --warning-border: #fed7aa; --badge: #eef4ff; --badge-border: #c7d7fe;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      background: radial-gradient(circle at top left, #eaf1ff, transparent 34%), var(--bg);
+      color: var(--text); font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    main { width: min(1180px, calc(100% - 28px)); margin: 28px auto; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 26px; box-shadow: 0 20px 55px rgba(23,32,51,.08); }
+    h1 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 34px); letter-spacing: -.03em; }
+    h2 { margin: 22px 0 10px; font-size: 18px; }
+    p { margin: 0; color: var(--muted); }
+    .badges { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0; }
+    .badge { border: 1px solid var(--badge-border); border-radius: 999px; background: var(--badge); color: #1e3a8a; font-weight: 800; padding: 8px 12px; font-size: 13px; }
+    .notice { margin: 18px 0; padding: 14px 16px; border-radius: 16px; background: var(--warning-bg); border: 1px solid var(--warning-border); color: #7c2d12; font-weight: 650; }
+    form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+    label { display: grid; gap: 7px; font-weight: 650; color: #263246; }
+    input, select { width: 100%; min-height: 46px; border: 1px solid var(--border); border-radius: 13px; padding: 11px 13px; font: inherit; background: #fff; }
+    .checkbox { display: flex; align-items: center; gap: 10px; grid-column: 1 / -1; }
+    .checkbox input { width: auto; min-height: auto; }
+    button { border: 0; border-radius: 13px; padding: 13px 20px; background: var(--danger); color: #fff; cursor: pointer; font: inherit; font-weight: 750; min-height: 48px; }
+    button:disabled { opacity: .65; cursor: wait; }
+    .actions { grid-column: 1 / -1; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .status { min-height: 24px; font-weight: 750; }
+    .status.error { color: var(--danger); } .status.success { color: var(--success); }
+    .result { margin-top: 22px; display: none; border-top: 1px solid var(--border); padding-top: 20px; }
+    .result.visible { display: block; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+    .metric, .panel { border: 1px solid var(--border); border-radius: 15px; padding: 13px; background: #fbfcff; }
+    .metric span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+    .panel { margin-top: 12px; }
+    .message { white-space: pre-wrap; border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: #fff; max-height: 320px; overflow: auto; }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    @media (max-width: 860px) { main { width: min(100% - 20px, 1180px); margin: 10px auto; } .card { padding: 18px; } form, .grid { grid-template-columns: 1fr; } button { width: 100%; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Guarded automation one-shot</h1>
+      <p>Изолированный semi-automation bridge: один ручной запуск, максимум одно сообщение, без permanent automation loop.</p>
+      <div class="badges">
+        <div class="badge">Manual trigger only</div>
+        <div class="badge">1 cycle / max 1 send</div>
+        <div class="badge">TEST_RECIPIENTS only</div>
+        <div class="badge">No cron/background/queues</div>
+      </div>
+      <div class="notice">Это всё ещё не full automation rollout. Automation state не меняется, постоянный scheduler loop не включается.</div>
+      <form id="guardedAutomationForm">
+        <label>Кандидаты<select id="flow_type"><option value="all">Отзывы и напоминания</option><option value="review">Только отзывы</option><option value="reminder">Только напоминания</option></select></label>
+        <label>Лимит кандидатов<input id="max_candidates" type="number" min="1" max="50" value="10" /></label>
+        <label>Горизонт напоминаний, часов<input id="reminder_horizon_hours" type="number" min="1" max="168" value="24" /></label>
+        <label class="checkbox"><input id="confirm_guarded_automation" type="checkbox" /> Я подтверждаю guarded automation one-shot: 1 cycle, max 1 send, только TEST_RECIPIENTS.</label>
+        <div class="actions"><button type="submit">Запустить guarded automation</button><div id="status" class="status"></div></div>
+      </form>
+      <section id="result" class="result">
+        <h2>Execution summary</h2>
+        <div class="grid">
+          <div class="metric"><span>Blocked</span><strong id="blocked">-</strong></div>
+          <div class="metric"><span>Eligible</span><strong id="eligible">0</strong></div>
+          <div class="metric"><span>Send adapter</span><strong id="sendAdapter">false</strong></div>
+          <div class="metric"><span>Permanent automation</span><strong id="permanentAutomation">false</strong></div>
+        </div>
+        <div id="summary" class="panel"></div>
+        <h2>Executed send</h2><div id="executedSend" class="panel"></div>
+        <h2>Skipped candidates</h2><div id="skipped" class="panel"></div>
+        <h2>Timeline</h2><ul id="timeline"></ul>
+        <h2>Safety guards</h2><ul id="safety"></ul>
+      </section>
+    </section>
+  </main>
+  <script>
+    const form = document.getElementById("guardedAutomationForm");
+    const result = document.getElementById("result");
+    const statusEl = document.getElementById("status");
+    const setStatus = (text, type = "") => { statusEl.textContent = text; statusEl.className = `status ${type}`.trim(); };
+    const list = (items) => (items || []).map((item) => `<li>${item}</li>`).join("") || "<li>Нет данных</li>";
+    const renderSend = (send) => {
+      if (!send) return "Отправка не выполнялась.";
+      const diagnostics = send.provider_diagnostics || {};
+      return `<div><strong>Sent:</strong> ${send.sent}</div><div><strong>Template:</strong> ${send.selected_template || "-"}</div><div><strong>Event:</strong> ${send.matched_event || "-"}</div><div><strong>Recipient:</strong> ${send.recipient_used || "-"}</div><div><strong>Message ID:</strong> ${send.message_id || "-"}</div><div><strong>Diagnostics:</strong> ${diagnostics.provider_delivery_state || "-"}/${diagnostics.whatsapp_session_state || "-"}</div><h3>Rendered text</h3><div class="message">${send.rendered_text || "Нет текста."}</div>`;
+    };
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = form.querySelector("button");
+      button.disabled = true; setStatus("Запускаем guarded automation one-shot...");
+      result.classList.remove("visible");
+      try {
+        const payload = {
+          flow_type: document.getElementById("flow_type").value,
+          max_candidates: Number(document.getElementById("max_candidates").value || 10),
+          reminder_horizon_hours: Number(document.getElementById("reminder_horizon_hours").value || 24),
+          confirm_guarded_automation: document.getElementById("confirm_guarded_automation").checked,
+          channel: "sms",
+        };
+        const response = await fetch("/scheduler/guarded-automation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Не удалось выполнить guarded automation.");
+        document.getElementById("blocked").textContent = String(data.blocked);
+        document.getElementById("eligible").textContent = data.eligible_candidates_found;
+        document.getElementById("sendAdapter").textContent = String(data.send_adapter_called);
+        document.getElementById("permanentAutomation").textContent = String(data.permanent_automation_enabled);
+        document.getElementById("summary").innerHTML = `<div><strong>Summary:</strong> ${data.execution_summary}</div><div><strong>Automation before/after:</strong> ${data.automation_enabled_before} / ${data.automation_enabled_after}</div><div><strong>Guard errors:</strong> ${(data.guard_errors || []).join("; ") || "нет"}</div>`;
+        document.getElementById("executedSend").innerHTML = renderSend(data.executed_send);
+        document.getElementById("skipped").innerHTML = list((data.skipped_candidates || []).map((item) => `${item.client_name}: ${item.skip_reason}`));
+        document.getElementById("timeline").innerHTML = list(data.execution_timeline);
+        document.getElementById("safety").innerHTML = list(data.safety_guards);
+        result.classList.add("visible");
+        setStatus(data.blocked ? "Guarded automation заблокирована safety guards." : "Guarded automation one-shot выполнена.", data.blocked ? "error" : "success");
+      } catch (error) {
+        setStatus(error.message || "Ошибка guarded automation.", "error");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
+"""
+
+
 class SchedulerToggleRequest(BaseModel):
     enabled: bool
 
@@ -2108,6 +2246,11 @@ class SchedulerExecutionPreviewRequest(BaseModel):
 
 class SchedulerManualCycleRequest(SchedulerExecutionPreviewRequest):
     confirm_manual_cycle: bool = False
+    channel: str = "sms"
+
+
+class SchedulerGuardedAutomationRequest(SchedulerExecutionPreviewRequest):
+    confirm_guarded_automation: bool = False
     channel: str = "sms"
 
 
@@ -2325,6 +2468,35 @@ class SchedulerManualCycleResponse(BaseModel):
     bulk_execution: bool
 
 
+class SchedulerGuardedAutomationResponse(BaseModel):
+    guarded_automation: bool
+    manual_trigger_only: bool
+    single_cycle_execution: bool
+    permanent_automation_enabled: bool
+    max_eligible_sends_per_cycle: int
+    confirm_guarded_automation: bool
+    blocked: bool
+    dry_run: bool
+    automation_enabled_before: bool
+    automation_enabled_after: bool
+    candidates_found: int
+    eligible_candidates_found: int
+    skipped_candidates: list[SchedulerManualCycleSkippedCandidateResponse]
+    executed_send: SchedulerManualCycleExecutedSendResponse | None
+    execution_summary: str
+    execution_timeline: list[str]
+    safety_guards: list[str]
+    guard_errors: list[str]
+    provider_access: bool
+    send_adapter_called: bool
+    send_pipeline_called: bool
+    background_execution: bool
+    cron_execution: bool
+    queue_execution: bool
+    bulk_execution: bool
+    monitoring_integrated: bool
+
+
 class SchedulerMonitoringHistoryItemResponse(BaseModel):
     recorded_at: str
     blocked: bool
@@ -2430,6 +2602,12 @@ async def scheduler_manual_cycle_page() -> HTMLResponse:
     return HTMLResponse(MANUAL_CYCLE_HTML)
 
 
+@router.get("/guarded-automation", response_class=HTMLResponse, include_in_schema=False)
+async def scheduler_guarded_automation_page() -> HTMLResponse:
+    """Human-friendly UI for one-shot guarded automation execution."""
+    return HTMLResponse(GUARDED_AUTOMATION_HTML)
+
+
 @router.get("/monitoring", response_class=HTMLResponse, include_in_schema=False)
 async def scheduler_monitoring_page() -> HTMLResponse:
     """Human-friendly read-only scheduler monitoring dashboard."""
@@ -2494,6 +2672,25 @@ async def scheduler_manual_cycle(
         ),
     )
     return SchedulerManualCycleResponse(**result.to_dict())
+
+
+@router.post("/guarded-automation", response_model=SchedulerGuardedAutomationResponse)
+async def scheduler_guarded_automation(
+    body: SchedulerGuardedAutomationRequest,
+    db: SessionDep,
+) -> SchedulerGuardedAutomationResponse:
+    """Execute one guarded automation bridge cycle with max one controlled send."""
+    result = await execute_guarded_automation_cycle(
+        db,
+        GuardedAutomationInput(
+            confirm_guarded_automation=body.confirm_guarded_automation,
+            flow_type=body.flow_type,
+            max_candidates=body.max_candidates,
+            reminder_horizon_hours=body.reminder_horizon_hours,
+            channel=body.channel,
+        ),
+    )
+    return SchedulerGuardedAutomationResponse(**result.to_dict())
 
 
 @router.get("/monitoring/status", response_model=SchedulerMonitoringResponse)

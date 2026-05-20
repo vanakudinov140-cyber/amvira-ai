@@ -121,6 +121,7 @@ async def execute_manual_scheduler_cycle(
     *,
     settings: Settings | None = None,
     adapter_cls: type[FlowSellSendAdapter] = FlowSellSendAdapter,
+    record_result: bool = True,
 ) -> ManualCycleResult:
     current = settings or get_settings()
     automation_enabled_before = scheduler_setup.is_automation_enabled()
@@ -171,6 +172,7 @@ async def execute_manual_scheduler_cycle(
                 safety_guards=safety_guards,
                 guard_errors=guard_errors,
             ),
+            record_result=record_result,
         )
 
     if not eligible:
@@ -186,6 +188,7 @@ async def execute_manual_scheduler_cycle(
                 safety_guards=safety_guards,
                 guard_errors=["no eligible candidates for this manual cycle"],
             ),
+            record_result=record_result,
         )
 
     selected = eligible[0]
@@ -234,6 +237,7 @@ async def execute_manual_scheduler_cycle(
             queue_execution=False,
             bulk_execution=False,
         ),
+        record_result=record_result,
     )
 
 
@@ -391,6 +395,7 @@ def _blocked_result(
     )
 
 
-def _record_and_return(result: ManualCycleResult) -> ManualCycleResult:
-    record_manual_cycle_result(result)
+def _record_and_return(result: ManualCycleResult, *, record_result: bool) -> ManualCycleResult:
+    if record_result:
+        record_manual_cycle_result(result)
     return result
