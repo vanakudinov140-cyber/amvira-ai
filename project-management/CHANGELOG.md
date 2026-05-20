@@ -44,6 +44,15 @@
 - Production reminder template polishing:
   - replaced `reminder_24h_template` and `reminder_2h_template` with customer-approved “ВНЕ РАМОК” WhatsApp copy
   - preserved deterministic placeholders, spacing, emoji and dry-run-only rollout safety
+- WhatsApp link normalization in reminder templates:
+  - bare `clck.ru`, `instagram.com`, `t.me`, `vk.com` links prefixed with `https://` for clickable URLs
+  - links kept on standalone lines after labels (not inside brackets or glued to emoji)
+- Review flow foundation:
+  - added deterministic `review_new_client_60m_template` with customer-approved “ВНЕ РАМОК” WhatsApp copy
+  - dry-run/manual template only; no scheduler, delayed jobs, queues, retry logic, segmentation or automation rollout
+- Manual review testing support:
+  - added `review_new_client_60m` to `/test/flowsell-demo` with the label “Запрос отзыва новому клиенту”
+  - uses existing controlled send pipeline only
 
 ### Notes
 - Real sends remain disabled by default (`FLOWSELL_DRY_RUN=true`, `TEST_MODE` unchanged).

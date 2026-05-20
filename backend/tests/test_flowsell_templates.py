@@ -67,6 +67,13 @@ def test_catalog_selects_reminder_timing_templates() -> None:
     assert "через 2 часа" in reminder_2h.text
     assert "ВНЕ РАМОК" in reminder_24h.text
     assert "ВНЕ РАМОК" in reminder_2h.text
+    for rendered in (reminder_24h, reminder_2h):
+        assert "https://clck.ru/3BDCZa" in rendered.text
+        assert "https://instagram.com/vneramok.kzn" in rendered.text
+        assert "https://t.me/vneramok_kzn" in rendered.text
+        assert "https://vk.com/vneramok_kzn" in rendered.text
+        assert "\nclck.ru/" not in rendered.text
+        assert "\ninstagram.com/" not in rendered.text
     assert not reminder_24h.missing_placeholders
     assert not reminder_2h.missing_placeholders
 
@@ -81,6 +88,32 @@ def test_catalog_maps_service_type_to_review_template() -> None:
     )
 
     assert rendered.template_id == "review_coloring_template"
+
+
+def test_catalog_selects_new_client_60m_review_template() -> None:
+    catalog = load_template_catalog()
+
+    rendered = catalog.render(
+        event="review_new_client_60m",
+        values={
+            "client_name": "Анна",
+            "service_name": "Стрижка",
+            "appointment_date": "21 мая",
+            "appointment_time": "12:00",
+            "master_name": "Мария",
+        },
+    )
+
+    assert rendered.template_id == "review_new_client_60m_template"
+    assert "ВНЕ РАМОК" in rendered.text
+    assert "https://clck.ru/3BFRCH" in rendered.text
+    assert "https://clck.ru/3BFRDb" in rendered.text
+    assert "https://clck.ru/3BFRJh" in rendered.text
+    assert "https://instagram.com/vneramok.kzn" in rendered.text
+    assert "https://t.me/vneramok_kzn" in rendered.text
+    assert "https://vk.com/vneramok_kzn" in rendered.text
+    assert "\nclck.ru/" not in rendered.text
+    assert not rendered.missing_placeholders
 
 
 def test_catalog_falls_back_to_default_template() -> None:

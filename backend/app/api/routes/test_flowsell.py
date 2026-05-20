@@ -221,6 +221,7 @@ FLOWSELL_DEMO_HTML = """
             <option value="appointment_cancelled">Отмена записи</option>
             <option value="reminder_24h">Напоминание за день</option>
             <option value="reminder_2h">Напоминание за 2 часа</option>
+            <option value="review_new_client_60m">Запрос отзыва новому клиенту</option>
           </select>
         </label>
 
@@ -280,7 +281,8 @@ FLOWSELL_DEMO_HTML = """
       appointment_rescheduled: "Клиент получает уведомление, что запись перенесена на новое время.",
       appointment_cancelled: "Клиент получает подтверждение отмены записи и ссылку для выбора нового времени.",
       reminder_24h: "Клиент получает мягкое напоминание за день до визита.",
-      reminder_2h: "Клиент получает короткое напоминание за 2 часа до визита."
+      reminder_2h: "Клиент получает короткое напоминание за 2 часа до визита.",
+      review_new_client_60m: "Сообщение с просьбой оставить отзыв после первого визита клиента."
     };
 
     const form = document.getElementById("sendForm");
