@@ -12,6 +12,7 @@ from app.scheduler.staging_execution import (
     StagingExecutionInput,
     StagingRealSendInput,
     build_staging_execution_preview,
+    build_staging_provider_diagnostics,
     execute_staging_real_send_test,
 )
 from app.scheduler.staging_foundation import get_scheduler_staging_status
@@ -1055,6 +1056,9 @@ STAGING_SEND_TEST_HTML = """
           <div class="metric"><span>Сценарий</span><strong id="matchedEvent">-</strong></div>
           <div class="metric"><span>Шаблон</span><strong id="templateId">-</strong></div>
           <div class="metric"><span>ID чата</span><strong id="chatId">-</strong></div>
+          <div class="metric"><span>Принято провайдером</span><strong id="providerAccepted">-</strong></div>
+          <div class="metric"><span>Статус доставки</span><strong id="deliveryStatus">-</strong></div>
+          <div class="metric"><span>Сессия WhatsApp</span><strong id="sessionState">-</strong></div>
         </div>
         <div class="sections">
           <div class="section">
@@ -1072,6 +1076,10 @@ STAGING_SEND_TEST_HTML = """
           <div class="section">
             <h2>Ответ провайдера</h2>
             <div id="providerResponse" class="empty">Ответ провайдера ещё не получен.</div>
+          </div>
+          <div class="section">
+            <h2>Диагностика провайдера</h2>
+            <div id="providerDiagnostics"></div>
           </div>
           <div class="section">
             <h2>Ошибки и предупреждения</h2>
@@ -1122,6 +1130,44 @@ STAGING_SEND_TEST_HTML = """
       "no scheduler/background execution": "Scheduler и фоновые задачи не запускаются",
       "no queues/workers/retries": "Очереди, воркеры и повторы не используются"
     };
+    const sessionLabels = {
+      authorized: "Авторизована",
+      qr_login_required: "Нужно повторно отсканировать QR",
+      qr_error: "Ошибка QR/session",
+      qr_status_unavailable: "Статус session недоступен",
+      not_configured: "FlowSell credentials не настроены",
+      not_checked: "Не проверялась"
+    };
+    const recipientWhatsappLabels = {
+      exists: "WhatsApp найден",
+      not_found_or_unavailable: "WhatsApp не найден или проверка недоступна",
+      not_checked: "Не проверялся"
+    };
+    const connectionLabels = {
+      settings_available: "Instance отвечает",
+      settings_unavailable: "Instance settings недоступны",
+      not_configured: "FlowSell credentials не настроены",
+      not_checked: "Не проверялось"
+    };
+    const failureReasonLabels = {
+      "WhatsApp session requires QR login": "Сессия WhatsApp требует повторного входа по QR",
+      "TEST_RECIPIENTS[0] may not have WhatsApp or checkWhatsapp is unavailable": "У тестового номера может не быть WhatsApp или проверка номера недоступна",
+      "Provider accepted message, but delivery status lookup is unavailable": "Провайдер принял сообщение, но статус доставки пока недоступен"
+    };
+    const failureReasonText = (reason) => {
+      if (!reason) return "не выявлена";
+      if (failureReasonLabels[reason]) return failureReasonLabels[reason];
+      if (reason.startsWith("Provider delivery status: ")) {
+        return `Статус доставки у провайдера: ${reason.replace("Provider delivery status: ", "")}`;
+      }
+      if (reason.startsWith("Provider accepted message, delivery is still ")) {
+        return `Провайдер принял сообщение, доставка пока в статусе ${reason.replace("Provider accepted message, delivery is still ", "")}`;
+      }
+      if (reason.startsWith("WhatsApp session state: ")) {
+        return `Состояние WhatsApp session: ${reason.replace("WhatsApp session state: ", "")}`;
+      }
+      return reason;
+    };
 
     const setStatus = (message, kind = "") => {
       statusNode.textContent = message;
@@ -1142,6 +1188,10 @@ STAGING_SEND_TEST_HTML = """
       document.getElementById("matchedEvent").textContent = labelFor(eventLabels, data.matched_event);
       document.getElementById("templateId").textContent = data.template_id || "-";
       document.getElementById("chatId").textContent = data.chat_id || "-";
+      const diagnostics = data.provider_diagnostics || {};
+      document.getElementById("providerAccepted").textContent = yesNo(diagnostics.provider_accepted);
+      document.getElementById("deliveryStatus").textContent = diagnostics.delivery_status || "не проверен";
+      document.getElementById("sessionState").textContent = labelFor(sessionLabels, diagnostics.whatsapp_session_state);
 
       const renderedText = document.getElementById("renderedText");
       renderedText.textContent = data.rendered_text || "Сообщение не сформировано.";
@@ -1151,6 +1201,19 @@ STAGING_SEND_TEST_HTML = """
       document.getElementById("safetyChecks").innerHTML = renderList(data.safety_checks, safetyLabels);
       document.getElementById("providerResponse").textContent = data.provider_response_preview || "Ответ провайдера отсутствует или отправка заблокирована.";
       document.getElementById("providerResponse").className = data.provider_response_preview ? "" : "empty";
+      document.getElementById("providerDiagnostics").innerHTML = [
+        `<div><strong>Принято провайдером:</strong> ${yesNo(diagnostics.provider_accepted)}</div>`,
+        `<div><strong>Состояние instance:</strong> ${labelFor(connectionLabels, diagnostics.connection_state)}</div>`,
+        `<div><strong>Сессия WhatsApp:</strong> ${labelFor(sessionLabels, diagnostics.whatsapp_session_state)}</div>`,
+        `<div><strong>Нужен повторный QR вход:</strong> ${diagnostics.qr_login_required === null || diagnostics.qr_login_required === undefined ? "неизвестно" : yesNo(diagnostics.qr_login_required)}</div>`,
+        `<div><strong>WhatsApp на тестовом номере:</strong> ${labelFor(recipientWhatsappLabels, diagnostics.test_recipient_whatsapp)}</div>`,
+        `<div><strong>Статус доставки:</strong> ${diagnostics.delivery_status || "недоступен"}</div>`,
+        `<div><strong>Состояние доставки у провайдера:</strong> ${diagnostics.provider_delivery_state || "неизвестно"}</div>`,
+        `<div><strong>Возможная причина:</strong> ${failureReasonText(diagnostics.possible_failure_reason)}</div>`,
+        `<div><strong>Account WID:</strong> ${diagnostics.account_wid || "-"}</div>`,
+        `<div><strong>Webhook настроен:</strong> ${diagnostics.webhook_configured === null || diagnostics.webhook_configured === undefined ? "неизвестно" : yesNo(diagnostics.webhook_configured)}</div>`,
+        `<div><strong>Ошибки диагностики:</strong>${renderList(diagnostics.diagnostics_errors, {}, "нет")}</div>`
+      ].join("");
       document.getElementById("issues").innerHTML = [
         `<div><strong>Ошибки защитных проверок:</strong>${renderList(data.guard_errors, {}, "нет")}</div>`,
         `<div><strong>Ошибки данных отправки:</strong>${renderList(data.validation_errors, {}, "нет")}</div>`,
@@ -1283,6 +1346,10 @@ class SchedulerStagingSendTestRequest(SchedulerStagingExecutePreviewRequest):
     confirm_real_send: bool = False
 
 
+class SchedulerProviderDiagnosticsRequest(BaseModel):
+    message_id: str
+
+
 class SchedulerStagingSendPayloadPreviewResponse(BaseModel):
     event: str
     template: str
@@ -1335,6 +1402,21 @@ class SchedulerStagingExecutePreviewResponse(BaseModel):
     send_payload_preview: SchedulerStagingSendPayloadPreviewResponse | None
 
 
+class SchedulerProviderDiagnosticsResponse(BaseModel):
+    provider_accepted: bool
+    connection_state: str
+    whatsapp_session_state: str
+    qr_login_required: bool | None
+    test_recipient_whatsapp: str
+    delivery_status: str
+    delivery_status_available: bool
+    provider_delivery_state: str
+    possible_failure_reason: str | None
+    diagnostics_errors: list[str]
+    account_wid: str | int | None = None
+    webhook_configured: bool | None = None
+
+
 class SchedulerStagingSendTestResponse(BaseModel):
     manual_trigger_only: bool
     single_message_execution: bool
@@ -1357,6 +1439,7 @@ class SchedulerStagingSendTestResponse(BaseModel):
     guard_errors: list[str]
     validation_errors: list[str]
     warnings: list[str]
+    provider_diagnostics: SchedulerProviderDiagnosticsResponse | None
     send_adapter_called: bool
     provider_access: bool
     background_execution: bool
@@ -1452,6 +1535,15 @@ async def scheduler_staging_send_test(
         ),
     )
     return SchedulerStagingSendTestResponse(**result.to_dict())
+
+
+@router.post("/staging-provider-diagnostics", response_model=SchedulerProviderDiagnosticsResponse)
+async def scheduler_staging_provider_diagnostics(
+    body: SchedulerProviderDiagnosticsRequest,
+) -> SchedulerProviderDiagnosticsResponse:
+    """Read-only provider diagnostics for a previous staging message id."""
+    result = await build_staging_provider_diagnostics(message_id=body.message_id)
+    return SchedulerProviderDiagnosticsResponse(**result.to_dict())
 
 
 @router.post("/toggle", response_model=SchedulerToggleResponse)

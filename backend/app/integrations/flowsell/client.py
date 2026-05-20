@@ -26,6 +26,13 @@ class FlowsellSendResult:
     id_message: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class FlowsellDiagnosticResult:
+    ok: bool
+    detail: str = ""
+    data: dict[str, Any] | None = None
+
+
 class FlowsellClient:
     """
     Асинхронный клиент FlowSell WhatsApp API.
@@ -156,6 +163,78 @@ class FlowsellClient:
             logger.warning("flowsell send failed: %s", result.detail)
         return result
 
+    async def get_account_settings(self) -> FlowsellDiagnosticResult:
+        """GET getSettings — read-only instance reachability/settings check."""
+        _, instance_id, api_token = self._resolve_credentials(self._settings)
+        result = await self._request_json(
+            "GET",
+            f"/waInstance{instance_id}/getSettings/{api_token}",
+        )
+        if not result.ok:
+            return result
+
+        data = result.data or {}
+        return FlowsellDiagnosticResult(
+            ok=True,
+            detail="settings_available",
+            data={
+                "wid": data.get("wid"),
+                "webhookUrl": data.get("webhookUrl"),
+            },
+        )
+
+    async def get_qr_status(self) -> FlowsellDiagnosticResult:
+        """
+        GET qr — read-only auth/session hint.
+
+        `alreadyLogged` means account is authorized. `qrCode` means QR login is
+        currently required; the base64 QR body is intentionally not returned.
+        """
+        _, instance_id, api_token = self._resolve_credentials(self._settings)
+        result = await self._request_json(
+            "GET",
+            f"/waInstance{instance_id}/qr/{api_token}",
+        )
+        if not result.ok:
+            return result
+
+        data = result.data or {}
+        qr_type = str(data.get("type") or "")
+        message = str(data.get("message") or "")
+        if qr_type == "qrCode":
+            message = "qrCode_available"
+        return FlowsellDiagnosticResult(
+            ok=True,
+            detail=qr_type or "unknown_qr_status",
+            data={
+                "type": qr_type,
+                "message": message,
+            },
+        )
+
+    async def get_message_status(
+        self,
+        *,
+        chat_id: str,
+        id_message: str,
+    ) -> FlowsellDiagnosticResult:
+        """POST getMessage — best-effort read-only delivery status lookup."""
+        _, instance_id, api_token = self._resolve_credentials(self._settings)
+        result = await self._request_json(
+            "POST",
+            f"/waInstance{instance_id}/getMessage/{api_token}",
+            json={"chatId": chat_id, "idMessage": id_message},
+        )
+        if not result.ok:
+            return result
+
+        data = result.data or {}
+        return FlowsellDiagnosticResult(
+            ok=True,
+            detail=str(data.get("statusMessage") or data.get("status") or "message_found"),
+            data=data,
+        )
+
     async def check_whatsapp(self, phone: str) -> FlowsellSendResult:
         """POST checkWhatsapp — есть ли WhatsApp на номере."""
         _, instance_id, api_token = self._resolve_credentials(self._settings)
@@ -178,3 +257,39 @@ class FlowsellClient:
         if isinstance(data, dict) and data.get("existsWhatsapp") is True:
             return FlowsellSendResult(ok=True, detail="exists")
         return FlowsellSendResult(ok=False, detail=str(data))
+
+    async def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+    ) -> FlowsellDiagnosticResult:
+        client = self._require_client()
+        try:
+            response = await client.request(method, path, json=json)
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPStatusError as exc:
+            body = exc.response.text[:500]
+            logger.warning(
+                "flowsell diagnostics HTTP error method=%s path=%s status=%s body=%s",
+                method,
+                path,
+                exc.response.status_code,
+                body,
+            )
+            return FlowsellDiagnosticResult(
+                ok=False,
+                detail=f"HTTP {exc.response.status_code}: {body}",
+            )
+        except httpx.RequestError as exc:
+            logger.warning("flowsell diagnostics network error method=%s path=%s: %s", method, path, exc)
+            return FlowsellDiagnosticResult(ok=False, detail=str(exc))
+        except ValueError as exc:
+            logger.warning("flowsell diagnostics invalid JSON method=%s path=%s: %s", method, path, exc)
+            return FlowsellDiagnosticResult(ok=False, detail=f"invalid JSON: {exc}")
+
+        if not isinstance(data, dict):
+            return FlowsellDiagnosticResult(ok=False, detail=f"unexpected response: {data!r}")
+        return FlowsellDiagnosticResult(ok=True, detail="ok", data=data)

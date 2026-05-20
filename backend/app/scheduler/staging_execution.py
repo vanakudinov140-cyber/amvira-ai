@@ -10,7 +10,9 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from app.core.config import Settings, get_settings
-from app.integrations.flowsell.send_adapter import FlowSellControlledSendResult, FlowSellSendAdapter
+from app.integrations.flowsell.client import FlowsellClient
+from app.integrations.flowsell.exceptions import FlowsellNotConfiguredError
+from app.integrations.flowsell.send_adapter import FlowSellSendAdapter
 from app.integrations.flowsell.mapper import (
     map_retention_channel_to_delivery,
     phone_to_chat_id,
@@ -138,10 +140,34 @@ class StagingRealSendResult:
     guard_errors: list[str]
     validation_errors: list[str]
     warnings: list[str]
+    provider_diagnostics: "StagingProviderDiagnostics | None"
     send_adapter_called: bool
     provider_access: bool
     background_execution: bool
     bulk_execution: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        data["provider_diagnostics"] = (
+            self.provider_diagnostics.to_dict() if self.provider_diagnostics else None
+        )
+        return data
+
+
+@dataclass(frozen=True, slots=True)
+class StagingProviderDiagnostics:
+    provider_accepted: bool
+    connection_state: str
+    whatsapp_session_state: str
+    qr_login_required: bool | None
+    test_recipient_whatsapp: str
+    delivery_status: str
+    delivery_status_available: bool
+    provider_delivery_state: str
+    possible_failure_reason: str | None
+    diagnostics_errors: list[str] = field(default_factory=list)
+    account_wid: str | int | None = None
+    webhook_configured: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -416,6 +442,12 @@ async def execute_staging_real_send_test(
         channel=execution_input.channel,
     )
     timeline.append("provider_response_received" if result.provider_response_preview else "adapter_result_received")
+    diagnostics = await _build_provider_diagnostics(
+        settings=current,
+        recipient=result.phone,
+        chat_id=result.chat_id,
+        message_id=result.message_id,
+    )
 
     return StagingRealSendResult(
         manual_trigger_only=True,
@@ -439,10 +471,26 @@ async def execute_staging_real_send_test(
         guard_errors=[],
         validation_errors=result.validation_errors,
         warnings=result.warnings,
+        provider_diagnostics=diagnostics,
         send_adapter_called=True,
         provider_access=bool(result.provider_response_preview or result.message_id),
         background_execution=False,
         bulk_execution=False,
+    )
+
+
+async def build_staging_provider_diagnostics(
+    *,
+    message_id: str,
+    settings: Settings | None = None,
+) -> StagingProviderDiagnostics:
+    current = settings or get_settings()
+    recipient = current.test_recipient_phones[0] if current.test_recipient_phones else ""
+    return await _build_provider_diagnostics(
+        settings=current,
+        recipient=recipient,
+        chat_id=_safe_chat_id(recipient),
+        message_id=message_id.strip() or None,
     )
 
 
@@ -479,6 +527,7 @@ def _blocked_real_send_result(
         guard_errors=guard_errors,
         validation_errors=[],
         warnings=[],
+        provider_diagnostics=None,
         send_adapter_called=False,
         provider_access=False,
         background_execution=False,
@@ -493,3 +542,119 @@ def _safe_chat_id(phone: str | None) -> str | None:
         return phone_to_chat_id(phone)
     except ValueError:
         return None
+
+
+async def _build_provider_diagnostics(
+    *,
+    settings: Settings,
+    recipient: str,
+    chat_id: str | None,
+    message_id: str | None,
+) -> StagingProviderDiagnostics:
+    errors: list[str] = []
+    account_wid: str | int | None = None
+    webhook_configured: bool | None = None
+    connection_state = "not_checked"
+    whatsapp_session_state = "not_checked"
+    qr_login_required: bool | None = None
+    test_recipient_whatsapp = "not_checked"
+    delivery_status = "not_checked"
+    delivery_status_available = False
+    provider_delivery_state = "accepted" if message_id else "not_accepted"
+
+    try:
+        async with FlowsellClient(settings) as client:
+            settings_result = await client.get_account_settings()
+            if settings_result.ok:
+                connection_state = "settings_available"
+                account_wid = (settings_result.data or {}).get("wid")
+                webhook_configured = bool((settings_result.data or {}).get("webhookUrl"))
+            else:
+                connection_state = "settings_unavailable"
+                errors.append(f"getSettings: {settings_result.detail}")
+
+            qr_result = await client.get_qr_status()
+            if qr_result.ok:
+                qr_type = str((qr_result.data or {}).get("type") or "")
+                if qr_type == "alreadyLogged":
+                    whatsapp_session_state = "authorized"
+                    qr_login_required = False
+                elif qr_type == "qrCode":
+                    whatsapp_session_state = "qr_login_required"
+                    qr_login_required = True
+                elif qr_type == "error":
+                    whatsapp_session_state = "qr_error"
+                    qr_login_required = None
+                    errors.append(f"qr: {(qr_result.data or {}).get('message')}")
+                else:
+                    whatsapp_session_state = qr_type or "unknown"
+                    qr_login_required = None
+            else:
+                whatsapp_session_state = "qr_status_unavailable"
+                errors.append(f"qr: {qr_result.detail}")
+
+            whatsapp_result = await client.check_whatsapp(recipient)
+            test_recipient_whatsapp = "exists" if whatsapp_result.ok else "not_found_or_unavailable"
+            if not whatsapp_result.ok:
+                errors.append(f"checkWhatsapp: {whatsapp_result.detail}")
+
+            if chat_id and message_id:
+                message_result = await client.get_message_status(chat_id=chat_id, id_message=message_id)
+                if message_result.ok:
+                    delivery_status_available = True
+                    delivery_status = message_result.detail
+                    provider_delivery_state = delivery_status
+                else:
+                    delivery_status = "unavailable"
+                    errors.append(f"getMessage: {message_result.detail}")
+    except FlowsellNotConfiguredError as exc:
+        connection_state = "not_configured"
+        whatsapp_session_state = "not_configured"
+        test_recipient_whatsapp = "not_checked"
+        delivery_status = "unavailable"
+        errors.append(str(exc))
+
+    possible_failure_reason = _diagnostic_failure_reason(
+        whatsapp_session_state=whatsapp_session_state,
+        test_recipient_whatsapp=test_recipient_whatsapp,
+        delivery_status=delivery_status,
+        delivery_status_available=delivery_status_available,
+        diagnostics_errors=errors,
+    )
+    return StagingProviderDiagnostics(
+        provider_accepted=bool(message_id),
+        connection_state=connection_state,
+        whatsapp_session_state=whatsapp_session_state,
+        qr_login_required=qr_login_required,
+        test_recipient_whatsapp=test_recipient_whatsapp,
+        delivery_status=delivery_status,
+        delivery_status_available=delivery_status_available,
+        provider_delivery_state=provider_delivery_state,
+        possible_failure_reason=possible_failure_reason,
+        diagnostics_errors=errors,
+        account_wid=account_wid,
+        webhook_configured=webhook_configured,
+    )
+
+
+def _diagnostic_failure_reason(
+    *,
+    whatsapp_session_state: str,
+    test_recipient_whatsapp: str,
+    delivery_status: str,
+    delivery_status_available: bool,
+    diagnostics_errors: list[str],
+) -> str | None:
+    if whatsapp_session_state == "qr_login_required":
+        return "WhatsApp session requires QR login"
+    if whatsapp_session_state not in {"authorized", "not_checked"} and "unavailable" not in whatsapp_session_state:
+        return f"WhatsApp session state: {whatsapp_session_state}"
+    if test_recipient_whatsapp == "not_found_or_unavailable":
+        return "TEST_RECIPIENTS[0] may not have WhatsApp or checkWhatsapp is unavailable"
+    if delivery_status in {"failed", "noAccount", "notInGroup", "yellowCard"}:
+        return f"Provider delivery status: {delivery_status}"
+    if delivery_status in {"pending", "sent"}:
+        return f"Provider accepted message, delivery is still {delivery_status}"
+    if not delivery_status_available and diagnostics_errors:
+        return "Provider accepted message, but delivery status lookup is unavailable"
+    return None

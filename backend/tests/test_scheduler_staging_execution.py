@@ -252,3 +252,7 @@ def test_staging_real_send_calls_adapter_once_for_test_recipient(monkeypatch) ->
     assert result.background_execution is False
     assert result.bulk_execution is False
     assert result.message_id == "test-message-id"
+    assert result.provider_diagnostics is not None
+    assert result.provider_diagnostics.provider_accepted is True
+    assert result.provider_diagnostics.connection_state == "not_configured"
+    assert result.provider_diagnostics.delivery_status == "unavailable"
