@@ -12,6 +12,7 @@ from app.scheduler.execution_preview import (
     SchedulerExecutionPreviewInput,
     build_scheduler_execution_preview,
 )
+from app.scheduler.manual_cycle import ManualCycleInput, execute_manual_scheduler_cycle
 from app.scheduler import setup as scheduler_setup
 from app.scheduler.staging_execution import (
     StagingExecutionInput,
@@ -1539,6 +1540,304 @@ EXECUTION_PREVIEW_HTML = """
 """
 
 
+MANUAL_CYCLE_HTML = """
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manual scheduler cycle</title>
+  <style>
+    :root {
+      --bg: #f6f8fc;
+      --card: #ffffff;
+      --text: #172033;
+      --muted: #667085;
+      --border: #dfe5ef;
+      --primary: #2563eb;
+      --success: #047857;
+      --danger: #b91c1c;
+      --warning-bg: #fff7ed;
+      --warning-border: #fed7aa;
+      --badge: #eef4ff;
+      --badge-border: #c7d7fe;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top left, #eaf1ff, transparent 34%), var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    main { width: min(1180px, calc(100% - 28px)); margin: 28px auto; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      box-shadow: 0 20px 55px rgba(23, 32, 51, 0.08);
+      padding: 26px;
+    }
+    h1 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 34px); letter-spacing: -0.03em; }
+    h2 { margin: 22px 0 10px; font-size: 18px; }
+    h3 { margin: 0 0 8px; font-size: 17px; }
+    p { margin: 0; color: var(--muted); }
+    .badges { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0; }
+    .badge {
+      border: 1px solid var(--badge-border);
+      border-radius: 999px;
+      background: var(--badge);
+      color: #1e3a8a;
+      font-weight: 800;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+    .notice {
+      margin: 18px 0;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      color: #7c2d12;
+      font-weight: 650;
+    }
+    form {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    label { display: grid; gap: 7px; font-weight: 650; color: #263246; }
+    input, select {
+      width: 100%;
+      min-height: 46px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 11px 13px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+    }
+    .checkbox { display: flex; align-items: center; gap: 10px; grid-column: 1 / -1; }
+    .checkbox input { width: auto; min-height: auto; }
+    button {
+      border: 0;
+      border-radius: 13px;
+      padding: 13px 20px;
+      background: var(--danger);
+      color: #fff;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 750;
+      min-height: 48px;
+    }
+    button:disabled { opacity: 0.65; cursor: wait; }
+    .actions { grid-column: 1 / -1; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .status { min-height: 24px; font-weight: 750; }
+    .status.error { color: var(--danger); }
+    .status.success { color: var(--success); }
+    .result { margin-top: 22px; display: none; border-top: 1px solid var(--border); padding-top: 20px; }
+    .result.visible { display: block; }
+    .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+    .metric, .panel {
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      padding: 13px;
+      background: #fbfcff;
+    }
+    .metric span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+    .panel { margin-top: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
+    .ok { color: var(--success); font-weight: 800; }
+    .blocked { color: var(--danger); font-weight: 800; }
+    .message {
+      white-space: pre-wrap;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      background: #fff;
+      max-height: 360px;
+      overflow: auto;
+    }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    @media (max-width: 860px) {
+      main { width: min(100% - 20px, 1180px); margin: 10px auto; }
+      .card { padding: 18px; border-radius: 18px; }
+      form, .summary, .grid { grid-template-columns: 1fr; }
+      button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Manual single-cycle scheduler execution</h1>
+      <p>Один ручной цикл: найти кандидатов, применить delay rules и выполнить максимум одну контролируемую отправку.</p>
+      <div class="badges">
+        <div class="badge">Manual only</div>
+        <div class="badge">Максимум 1 send</div>
+        <div class="badge">Только TEST_RECIPIENTS</div>
+        <div class="badge">Без cron/background/queues</div>
+      </div>
+      <div class="notice">
+        Это не automation rollout. Endpoint блокируется без confirmation, при FLOWSELL_DRY_RUN=true или если automation включена.
+      </div>
+
+      <form id="manualCycleForm">
+        <label>
+          Какие кандидаты проверять
+          <select id="flow_type" name="flow_type">
+            <option value="all">Отзывы и напоминания</option>
+            <option value="review">Только отзывы после визита</option>
+            <option value="reminder">Только напоминания о визите</option>
+          </select>
+        </label>
+        <label>
+          Лимит кандидатов
+          <input id="max_candidates" name="max_candidates" type="number" min="1" max="50" value="10" />
+        </label>
+        <label>
+          Горизонт напоминаний, часов
+          <input id="reminder_horizon_hours" name="reminder_horizon_hours" type="number" min="1" max="168" value="24" />
+        </label>
+        <label class="checkbox">
+          <input id="confirm_manual_cycle" name="confirm_manual_cycle" type="checkbox" />
+          Я подтверждаю один ручной cycle execution, максимум 1 eligible send, только TEST_RECIPIENTS.
+        </label>
+        <div class="actions">
+          <button type="submit">Запустить manual cycle</button>
+          <div id="status" class="status"></div>
+        </div>
+      </form>
+
+      <section id="result" class="result">
+        <h2>Execution summary</h2>
+        <div class="summary">
+          <div class="metric"><span>Blocked</span><strong id="blocked">-</strong></div>
+          <div class="metric"><span>Candidates</span><strong id="candidatesFound">0</strong></div>
+          <div class="metric"><span>Eligible</span><strong id="eligibleFound">0</strong></div>
+          <div class="metric"><span>Send adapter</span><strong id="sendAdapterCalled">false</strong></div>
+        </div>
+        <div id="summaryPanel" class="panel"></div>
+
+        <h2>Executed send</h2>
+        <div id="executedSend" class="panel"></div>
+
+        <h2>Skipped candidates</h2>
+        <div id="skippedCandidates"></div>
+
+        <h2>Safety guards</h2>
+        <ul id="safetyGuards"></ul>
+
+        <h2>Execution timeline</h2>
+        <ul id="timeline"></ul>
+      </section>
+    </section>
+  </main>
+  <script>
+    const form = document.getElementById("manualCycleForm");
+    const statusEl = document.getElementById("status");
+    const result = document.getElementById("result");
+    const skippedEl = document.getElementById("skippedCandidates");
+    const safetyEl = document.getElementById("safetyGuards");
+    const timelineEl = document.getElementById("timeline");
+    const executedEl = document.getElementById("executedSend");
+    const summaryEl = document.getElementById("summaryPanel");
+
+    const setStatus = (text, type = "") => {
+      statusEl.textContent = text;
+      statusEl.className = `status ${type}`.trim();
+    };
+    const list = (items) => `<ul>${(items || []).map((item) => `<li>${item}</li>`).join("")}</ul>`;
+
+    const renderSkipped = (candidate) => `
+      <article class="panel">
+        <h3>${candidate.client_name || "Клиент"} · ${candidate.service_name || "Услуга"}</h3>
+        <div class="grid">
+          <div><strong>Причина skip:</strong> ${candidate.skip_reason}</div>
+          <div><strong>Template:</strong> ${candidate.selected_template || "-"}</div>
+          <div><strong>Event:</strong> ${candidate.matched_event || "-"}</div>
+          <div><strong>would_send:</strong> ${candidate.would_send}</div>
+        </div>
+        ${list(candidate.guard_errors)}
+      </article>
+    `;
+
+    const renderExecuted = (send) => {
+      if (!send) return "<span class='blocked'>Отправка не выполнялась.</span>";
+      const diagnostics = send.provider_diagnostics || {};
+      return `
+        <div class="grid">
+          <div><strong>Sent:</strong> ${send.sent}</div>
+          <div><strong>Template:</strong> ${send.selected_template || "-"}</div>
+          <div><strong>Event:</strong> ${send.matched_event || "-"}</div>
+          <div><strong>Recipient:</strong> ${send.recipient_used || "-"}</div>
+          <div><strong>Message ID:</strong> ${send.message_id || "-"}</div>
+          <div><strong>Provider:</strong> ${send.provider || "-"}</div>
+          <div><strong>WhatsApp:</strong> ${diagnostics.whatsapp_session_state || "-"}</div>
+          <div><strong>Delivery:</strong> ${diagnostics.delivery_status || "-"}</div>
+        </div>
+        <h3>Provider response</h3>
+        <div class="message">${send.provider_response_preview || "Нет provider response."}</div>
+        <h3>Rendered message</h3>
+        <div class="message">${send.rendered_text || "Текст не сформирован."}</div>
+      `;
+    };
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = form.querySelector("button");
+      button.disabled = true;
+      setStatus("Запускаем manual single-cycle...");
+      result.classList.remove("visible");
+      try {
+        const payload = {
+          flow_type: document.getElementById("flow_type").value,
+          max_candidates: Number(document.getElementById("max_candidates").value || 10),
+          reminder_horizon_hours: Number(document.getElementById("reminder_horizon_hours").value || 24),
+          confirm_manual_cycle: document.getElementById("confirm_manual_cycle").checked,
+          channel: "sms",
+        };
+        const response = await fetch("/scheduler/manual-cycle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || "Не удалось выполнить manual cycle.");
+        }
+        document.getElementById("blocked").textContent = String(data.blocked);
+        document.getElementById("candidatesFound").textContent = data.candidates_found;
+        document.getElementById("eligibleFound").textContent = data.eligible_candidates_found;
+        document.getElementById("sendAdapterCalled").textContent = String(data.send_adapter_called);
+        summaryEl.innerHTML = `
+          <div><strong>Summary:</strong> ${data.execution_summary}</div>
+          <div><strong>Automation before:</strong> ${data.automation_enabled_before}</div>
+          <div><strong>Automation after:</strong> ${data.automation_enabled_after}</div>
+          <div><strong>Guard errors:</strong> ${(data.guard_errors || []).join("; ") || "нет"}</div>
+        `;
+        executedEl.innerHTML = renderExecuted(data.executed_send);
+        skippedEl.innerHTML = data.skipped_candidates.length
+          ? data.skipped_candidates.map(renderSkipped).join("")
+          : "<p class='ok'>Skipped candidates нет.</p>";
+        safetyEl.innerHTML = (data.safety_guards || []).map((item) => `<li>${item}</li>`).join("");
+        timelineEl.innerHTML = (data.execution_timeline || []).map((item) => `<li>${item}</li>`).join("");
+        result.classList.add("visible");
+        setStatus(data.blocked ? "Manual cycle заблокирован safety guards." : "Manual cycle выполнен.", data.blocked ? "error" : "success");
+      } catch (error) {
+        setStatus(error.message || "Ошибка manual cycle.", "error");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
+"""
+
+
 class SchedulerToggleRequest(BaseModel):
     enabled: bool
 
@@ -1581,6 +1880,11 @@ class SchedulerExecutionPreviewRequest(BaseModel):
     flow_type: str = "all"
     max_candidates: int = 10
     reminder_horizon_hours: int = 24
+
+
+class SchedulerManualCycleRequest(SchedulerExecutionPreviewRequest):
+    confirm_manual_cycle: bool = False
+    channel: str = "sms"
 
 
 class DelayRulePreviewResponse(BaseModel):
@@ -1650,6 +1954,21 @@ class SchedulerExecutionPreviewResponse(BaseModel):
     plans: list[SchedulerExecutionCandidatePlanResponse]
     safety_guards: list[str]
     execution_reasoning: list[str]
+
+
+class SchedulerManualCycleSkippedCandidateResponse(BaseModel):
+    record_id: int
+    yclients_record_id: int
+    client_name: str
+    service_name: str
+    flow_type: str
+    matched_category: str | None
+    matched_event: str | None
+    selected_template: str | None
+    would_send: bool
+    blocked_by_guard: bool
+    skip_reason: str
+    guard_errors: list[str]
 
 
 class SchedulerStagingExecutePreviewRequest(SchedulerDryRunPreviewRequest):
@@ -1736,6 +2055,52 @@ class SchedulerProviderDiagnosticsResponse(BaseModel):
     webhook_configured: bool | None = None
 
 
+class SchedulerManualCycleExecutedSendResponse(BaseModel):
+    record_id: int
+    yclients_record_id: int
+    client_name: str
+    service_name: str
+    matched_category: str | None
+    matched_event: str | None
+    selected_template: str | None
+    recipient_used: str | None
+    chat_id: str | None
+    message_id: str | None
+    sent: bool
+    provider: str
+    provider_response_preview: str | None
+    rendered_text: str | None
+    validation_errors: list[str]
+    warnings: list[str]
+    provider_diagnostics: SchedulerProviderDiagnosticsResponse | None
+
+
+class SchedulerManualCycleResponse(BaseModel):
+    manual_trigger_only: bool
+    single_cycle_execution: bool
+    max_eligible_sends_per_cycle: int
+    confirm_manual_cycle: bool
+    blocked: bool
+    dry_run: bool
+    automation_enabled_before: bool
+    automation_enabled_after: bool
+    candidates_found: int
+    eligible_candidates_found: int
+    skipped_candidates: list[SchedulerManualCycleSkippedCandidateResponse]
+    executed_send: SchedulerManualCycleExecutedSendResponse | None
+    execution_summary: str
+    execution_timeline: list[str]
+    safety_guards: list[str]
+    guard_errors: list[str]
+    provider_access: bool
+    send_adapter_called: bool
+    send_pipeline_called: bool
+    background_execution: bool
+    cron_execution: bool
+    queue_execution: bool
+    bulk_execution: bool
+
+
 class SchedulerStagingSendTestResponse(BaseModel):
     manual_trigger_only: bool
     single_message_execution: bool
@@ -1795,6 +2160,12 @@ async def scheduler_execution_preview_page() -> HTMLResponse:
     return HTMLResponse(EXECUTION_PREVIEW_HTML)
 
 
+@router.get("/manual-cycle", response_class=HTMLResponse, include_in_schema=False)
+async def scheduler_manual_cycle_page() -> HTMLResponse:
+    """Human-friendly UI for isolated manual single-cycle scheduler execution."""
+    return HTMLResponse(MANUAL_CYCLE_HTML)
+
+
 @router.post("/dry-run-preview", response_model=SchedulerDryRunPreviewResponse)
 async def scheduler_dry_run_preview(
     body: SchedulerDryRunPreviewRequest,
@@ -1828,6 +2199,25 @@ async def scheduler_execution_preview(
         ),
     )
     return SchedulerExecutionPreviewResponse(**result.to_dict())
+
+
+@router.post("/manual-cycle", response_model=SchedulerManualCycleResponse)
+async def scheduler_manual_cycle(
+    body: SchedulerManualCycleRequest,
+    db: SessionDep,
+) -> SchedulerManualCycleResponse:
+    """Execute one isolated manual scheduler cycle with max one controlled send."""
+    result = await execute_manual_scheduler_cycle(
+        db,
+        ManualCycleInput(
+            confirm_manual_cycle=body.confirm_manual_cycle,
+            flow_type=body.flow_type,
+            max_candidates=body.max_candidates,
+            reminder_horizon_hours=body.reminder_horizon_hours,
+            channel=body.channel,
+        ),
+    )
+    return SchedulerManualCycleResponse(**result.to_dict())
 
 
 @router.post("/staging-execute-preview", response_model=SchedulerStagingExecutePreviewResponse)
