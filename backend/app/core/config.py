@@ -48,6 +48,11 @@ class Settings(BaseSettings):
 
     SEND_PENDING_LIMIT: int = 5
     SCHEDULER_AUTOMATION_ENABLED: bool = True
+    SCHEDULER_STAGING_FOUNDATION_ENABLED: bool = False
+    SCHEDULER_STAGING_MODE: bool = True
+    SCHEDULER_STAGING_MAX_RECORDS: int = 1
+    SCHEDULER_STAGING_REQUIRE_DRY_RUN: bool = True
+    SCHEDULER_STAGING_ONLY_TEST_RECIPIENTS: bool = True
     RETENTION_ATTRIBUTION_DAYS: int = 30
 
     DUPLICATE_WINDOW_DAYS: int = 7
@@ -74,6 +79,13 @@ class Settings(BaseSettings):
     def validate_quiet_hours(cls, value: int) -> int:
         if not 0 <= value <= 23:
             raise ValueError("QUIET_HOURS_START/END должны быть в диапазоне 0–23 (UTC).")
+        return value
+
+    @field_validator("SCHEDULER_STAGING_MAX_RECORDS", mode="after")
+    @classmethod
+    def validate_scheduler_staging_max_records(cls, value: int) -> int:
+        if value != 1:
+            raise ValueError("SCHEDULER_STAGING_MAX_RECORDS must stay 1 for staging safety.")
         return value
 
     @field_validator("ENVIRONMENT", mode="before")
