@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from app.api.deps import SessionDep
+from app.scheduler.delivery_adapters import build_delivery_adapters_status, build_max_adapter_preview
 from app.scheduler.delivery_orchestration import (
     OrchestrationPreviewInput,
     build_delivery_orchestration_preview,
@@ -2348,6 +2349,181 @@ ORCHESTRATION_PREVIEW_HTML = """
 """
 
 
+ADAPTERS_STATUS_HTML = """
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Delivery adapters status</title>
+  <style>
+    :root { --bg:#f6f8fc; --card:#fff; --text:#172033; --muted:#667085; --border:#dfe5ef; --primary:#2563eb; --success:#047857; --danger:#b91c1c; --badge:#eef4ff; --badge-border:#c7d7fe; --warning-bg:#fff7ed; --warning-border:#fed7aa; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; background:radial-gradient(circle at top left,#eaf1ff,transparent 34%),var(--bg); color:var(--text); font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.5; }
+    main { width:min(1180px,calc(100% - 28px)); margin:28px auto; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:22px; padding:26px; box-shadow:0 20px 55px rgba(23,32,51,.08); }
+    h1 { margin:0 0 8px; font-size:clamp(24px,4vw,34px); letter-spacing:-.03em; }
+    h2 { margin:22px 0 10px; font-size:18px; }
+    p { margin:0; color:var(--muted); }
+    .badges { display:flex; gap:10px; flex-wrap:wrap; margin:18px 0; }
+    .badge { border:1px solid var(--badge-border); border-radius:999px; background:var(--badge); color:#1e3a8a; font-weight:800; padding:8px 12px; font-size:13px; }
+    .notice { margin:18px 0; padding:14px 16px; border-radius:16px; background:var(--warning-bg); border:1px solid var(--warning-border); color:#7c2d12; font-weight:650; }
+    button { border:0; border-radius:13px; padding:13px 20px; background:var(--primary); color:#fff; cursor:pointer; font:inherit; font-weight:750; min-height:48px; margin-top:18px; }
+    .status { min-height:24px; font-weight:750; margin-top:10px; }
+    .status.error { color:var(--danger); } .status.success { color:var(--success); }
+    .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:14px 0; }
+    .metric,.panel { border:1px solid var(--border); border-radius:15px; padding:13px; background:#fbfcff; }
+    .metric span { display:block; color:var(--muted); font-size:12px; margin-bottom:5px; }
+    .adapter { margin-top:12px; border:1px solid var(--border); border-radius:16px; padding:14px; background:#fff; }
+    ul { margin:8px 0 0; padding-left:20px; }
+    @media (max-width:860px) { main { width:min(100% - 20px,1180px); margin:10px auto; } .card { padding:18px; } .grid { grid-template-columns:1fr; } button { width:100%; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Delivery adapters status</h1>
+      <p>Read-only статус adapter foundation для цепочки MAX → Telegram → WhatsApp.</p>
+      <div class="badges">
+        <div class="badge">MAX foundation</div>
+        <div class="badge">Telegram placeholder</div>
+        <div class="badge">WhatsApp placeholder</div>
+        <div class="badge">No real sends</div>
+      </div>
+      <div class="notice">Страница не вызывает provider network probes, send adapters, background execution или queues.</div>
+      <button id="refresh">Обновить adapters status</button>
+      <div id="status" class="status"></div>
+      <h2>Summary</h2>
+      <div class="grid">
+        <div class="metric"><span>Primary channel</span><strong id="primary">-</strong></div>
+        <div class="metric"><span>Fallback chain</span><strong id="fallback">-</strong></div>
+        <div class="metric"><span>Automation</span><strong id="automation">-</strong></div>
+        <div class="metric"><span>Provider access</span><strong id="providerAccess">false</strong></div>
+      </div>
+      <div class="panel"><h2>Adapters</h2><div id="adapters"></div></div>
+      <div class="panel"><h2>Safety guards</h2><ul id="guards"></ul></div>
+    </section>
+  </main>
+  <script>
+    const statusEl = document.getElementById("status");
+    const setStatus = (text, type = "") => { statusEl.textContent = text; statusEl.className = `status ${type}`.trim(); };
+    const setText = (id, value) => { document.getElementById(id).textContent = value ?? "-"; };
+    const list = (items) => (items || []).map((item) => `<li>${item}</li>`).join("") || "<li>Нет данных</li>";
+    const renderAdapter = (adapter) => `<div class="adapter"><strong>${adapter.channel}</strong> priority=${adapter.priority}<br>configured=${adapter.configured} | foundation_ready=${adapter.foundation_ready} | real_send_enabled=${adapter.real_send_enabled}<br>state=${adapter.health.state} | provider_access=${adapter.health.provider_access}<ul>${list(adapter.capability.notes)}</ul><strong>Errors:</strong><ul>${list(adapter.health.errors)}</ul></div>`;
+    async function refresh() {
+      setStatus("Загружаем adapter status...");
+      try {
+        const response = await fetch("/scheduler/adapters-status.json");
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Не удалось загрузить adapters status.");
+        setText("primary", data.primary_channel);
+        setText("fallback", (data.fallback_chain || []).join(" → "));
+        setText("automation", data.automation_enabled ? "enabled" : "disabled");
+        setText("providerAccess", String(data.provider_access));
+        document.getElementById("adapters").innerHTML = (data.adapters || []).map(renderAdapter).join("") || "Нет данных.";
+        document.getElementById("guards").innerHTML = list(data.safety_guards);
+        setStatus("Adapters status обновлён. Real sends не выполнялись.", "success");
+      } catch (error) {
+        setStatus(error.message || "Ошибка adapters status.", "error");
+      }
+    }
+    document.getElementById("refresh").addEventListener("click", refresh);
+    refresh();
+  </script>
+</body>
+</html>
+"""
+
+
+MAX_ADAPTER_PREVIEW_HTML = """
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MAX adapter preview</title>
+  <style>
+    :root { --bg:#f6f8fc; --card:#fff; --text:#172033; --muted:#667085; --border:#dfe5ef; --primary:#2563eb; --success:#047857; --danger:#b91c1c; --badge:#eef4ff; --badge-border:#c7d7fe; --warning-bg:#fff7ed; --warning-border:#fed7aa; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; background:radial-gradient(circle at top left,#eaf1ff,transparent 34%),var(--bg); color:var(--text); font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.5; }
+    main { width:min(1180px,calc(100% - 28px)); margin:28px auto; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:22px; padding:26px; box-shadow:0 20px 55px rgba(23,32,51,.08); }
+    h1 { margin:0 0 8px; font-size:clamp(24px,4vw,34px); letter-spacing:-.03em; }
+    h2 { margin:22px 0 10px; font-size:18px; }
+    p { margin:0; color:var(--muted); }
+    .badges { display:flex; gap:10px; flex-wrap:wrap; margin:18px 0; }
+    .badge { border:1px solid var(--badge-border); border-radius:999px; background:var(--badge); color:#1e3a8a; font-weight:800; padding:8px 12px; font-size:13px; }
+    .notice { margin:18px 0; padding:14px 16px; border-radius:16px; background:var(--warning-bg); border:1px solid var(--warning-border); color:#7c2d12; font-weight:650; }
+    button { border:0; border-radius:13px; padding:13px 20px; background:var(--primary); color:#fff; cursor:pointer; font:inherit; font-weight:750; min-height:48px; margin-top:18px; }
+    .status { min-height:24px; font-weight:750; margin-top:10px; }
+    .status.error { color:var(--danger); } .status.success { color:var(--success); }
+    .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:14px 0; }
+    .metric,.panel { border:1px solid var(--border); border-radius:15px; padding:13px; background:#fbfcff; }
+    .metric span { display:block; color:var(--muted); font-size:12px; margin-bottom:5px; }
+    ul { margin:8px 0 0; padding-left:20px; }
+    @media (max-width:860px) { main { width:min(100% - 20px,1180px); margin:10px auto; } .card { padding:18px; } .grid { grid-template-columns:1fr; } button { width:100%; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>MAX adapter preview</h1>
+      <p>Production-safe foundation для primary delivery channel MAX. Это preview/diagnostics слой без реальных отправок.</p>
+      <div class="badges">
+        <div class="badge">Primary channel</div>
+        <div class="badge">Capabilities</div>
+        <div class="badge">Health checks</div>
+        <div class="badge">No real MAX sends</div>
+      </div>
+      <div class="notice">MAX adapter не подключён к scheduler execution и не вызывает provider network probes.</div>
+      <button id="refresh">Обновить MAX adapter preview</button>
+      <div id="status" class="status"></div>
+      <h2>Adapter state</h2>
+      <div class="grid">
+        <div class="metric"><span>Configured</span><strong id="configured">-</strong></div>
+        <div class="metric"><span>Health state</span><strong id="state">-</strong></div>
+        <div class="metric"><span>Preview only</span><strong id="previewOnly">true</strong></div>
+        <div class="metric"><span>Provider access</span><strong id="providerAccess">false</strong></div>
+      </div>
+      <div class="panel"><h2>Capabilities</h2><ul id="capabilities"></ul></div>
+      <div class="panel"><h2>Diagnostics</h2><ul id="diagnostics"></ul></div>
+      <div class="panel"><h2>Normalized response example</h2><ul id="normalized"></ul></div>
+      <div class="panel"><h2>Safety guards</h2><ul id="guards"></ul></div>
+    </section>
+  </main>
+  <script>
+    const statusEl = document.getElementById("status");
+    const setStatus = (text, type = "") => { statusEl.textContent = text; statusEl.className = `status ${type}`.trim(); };
+    const setText = (id, value) => { document.getElementById(id).textContent = value ?? "-"; };
+    const objectList = (obj) => Object.entries(obj || {}).map(([key, value]) => `<li>${key}: ${Array.isArray(value) ? value.join(", ") : value}</li>`).join("") || "<li>Нет данных</li>";
+    const list = (items) => (items || []).map((item) => `<li>${item}</li>`).join("") || "<li>Нет данных</li>";
+    async function refresh() {
+      setStatus("Загружаем MAX adapter preview...");
+      try {
+        const response = await fetch("/scheduler/max-adapter-preview.json");
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Не удалось загрузить MAX adapter preview.");
+        setText("configured", String(data.configured));
+        setText("state", data.health.state);
+        setText("previewOnly", String(data.preview_only));
+        setText("providerAccess", String(data.provider_access));
+        document.getElementById("capabilities").innerHTML = objectList(data.capability);
+        document.getElementById("diagnostics").innerHTML = objectList({ ...data.diagnostics, ...data.health.diagnostics });
+        document.getElementById("normalized").innerHTML = objectList(data.normalized_response_example);
+        document.getElementById("guards").innerHTML = list(data.safety_guards);
+        setStatus("MAX adapter preview обновлён. Real sends не выполнялись.", "success");
+      } catch (error) {
+        setStatus(error.message || "Ошибка MAX adapter preview.", "error");
+      }
+    }
+    document.getElementById("refresh").addEventListener("click", refresh);
+    refresh();
+  </script>
+</body>
+</html>
+"""
+
+
 class SchedulerToggleRequest(BaseModel):
     enabled: bool
 
@@ -2517,6 +2693,96 @@ class SchedulerOrchestrationPreviewResponse(BaseModel):
     bulk_execution: bool
     automation_enabled_before: bool
     automation_enabled_after: bool
+
+
+class DeliveryAdapterCapabilityResponse(BaseModel):
+    channel: str
+    display_name: str
+    priority: int
+    configured: bool
+    enabled_for_real_send: bool
+    preview_only: bool
+    supports_text: bool
+    supports_media: bool
+    supports_delivery_status: bool
+    supports_read_status: bool
+    supports_health_check: bool
+    max_recipients_per_request: int
+    timeout_seconds: float
+    notes: list[str]
+
+
+class DeliveryAdapterHealthResponse(BaseModel):
+    channel: str
+    adapter_key: str
+    state: str
+    configured: bool
+    provider_access: bool
+    send_adapter_called: bool
+    response_normalized: bool
+    timeout_seconds: float
+    errors: list[str]
+    diagnostics: dict
+
+
+class DeliveryProviderResponseModel(BaseModel):
+    channel: str
+    provider_message_id: str | None
+    accepted: bool
+    status: str
+    raw_status: str | int | None
+    error_code: str | None
+    error_message: str | None
+    retryable: bool
+    normalized: bool
+
+
+class DeliveryAdapterStatusResponse(BaseModel):
+    channel: str
+    adapter_key: str
+    priority: int
+    configured: bool
+    foundation_ready: bool
+    real_send_enabled: bool
+    orchestration_compatible: bool
+    capability: DeliveryAdapterCapabilityResponse
+    health: DeliveryAdapterHealthResponse
+
+
+class DeliveryAdaptersStatusResponse(BaseModel):
+    read_only: bool
+    adapter_foundation_only: bool
+    automation_enabled: bool
+    primary_channel: str
+    fallback_chain: list[str]
+    adapters: list[DeliveryAdapterStatusResponse]
+    provider_access: bool
+    send_adapter_called: bool
+    background_execution: bool
+    cron_execution: bool
+    queue_execution: bool
+    bulk_execution: bool
+    safety_guards: list[str]
+
+
+class MaxAdapterPreviewResponse(BaseModel):
+    channel: str
+    adapter_key: str
+    preview_only: bool
+    configured: bool
+    primary_channel: bool
+    orchestration_compatible: bool
+    provider_access: bool
+    send_adapter_called: bool
+    background_execution: bool
+    cron_execution: bool
+    queue_execution: bool
+    bulk_execution: bool
+    capability: DeliveryAdapterCapabilityResponse
+    health: DeliveryAdapterHealthResponse
+    normalized_response_example: DeliveryProviderResponseModel
+    diagnostics: dict
+    safety_guards: list[str]
 
 
 class SchedulerManualCycleSkippedCandidateResponse(BaseModel):
@@ -2798,6 +3064,18 @@ async def scheduler_orchestration_preview_page() -> HTMLResponse:
     return HTMLResponse(ORCHESTRATION_PREVIEW_HTML)
 
 
+@router.get("/adapters-status", response_class=HTMLResponse, include_in_schema=False)
+async def scheduler_adapters_status_page() -> HTMLResponse:
+    """Human-friendly UI for read-only delivery adapter status."""
+    return HTMLResponse(ADAPTERS_STATUS_HTML)
+
+
+@router.get("/max-adapter-preview", response_class=HTMLResponse, include_in_schema=False)
+async def scheduler_max_adapter_preview_page() -> HTMLResponse:
+    """Human-friendly UI for read-only MAX adapter foundation preview."""
+    return HTMLResponse(MAX_ADAPTER_PREVIEW_HTML)
+
+
 @router.get("/manual-cycle", response_class=HTMLResponse, include_in_schema=False)
 async def scheduler_manual_cycle_page() -> HTMLResponse:
     """Human-friendly UI for isolated manual single-cycle scheduler execution."""
@@ -2873,6 +3151,20 @@ async def scheduler_orchestration_preview(
         ),
     )
     return SchedulerOrchestrationPreviewResponse(**result.to_dict())
+
+
+@router.get("/adapters-status.json", response_model=DeliveryAdaptersStatusResponse)
+async def scheduler_adapters_status_json() -> DeliveryAdaptersStatusResponse:
+    """Read-only delivery adapter foundation status. Never sends."""
+    result = await build_delivery_adapters_status()
+    return DeliveryAdaptersStatusResponse(**result.to_dict())
+
+
+@router.get("/max-adapter-preview.json", response_model=MaxAdapterPreviewResponse)
+async def scheduler_max_adapter_preview_json() -> MaxAdapterPreviewResponse:
+    """Read-only MAX adapter preview. Does not call provider or send messages."""
+    result = await build_max_adapter_preview()
+    return MaxAdapterPreviewResponse(**result)
 
 
 @router.post("/manual-cycle", response_model=SchedulerManualCycleResponse)
