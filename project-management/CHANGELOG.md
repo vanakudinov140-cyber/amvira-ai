@@ -37,6 +37,10 @@
   - lightweight `/test/flowsell-demo` page for manual single WhatsApp lifecycle sends
   - uses existing `/test/send-real` controlled pipeline without duplicating send logic
   - shows loading, success/error state, sent/dry-run status, message id, warnings, validation errors and provider response preview
+- Customer-friendly demo UI polish:
+  - Russian labels and scenario names for lifecycle/reminder test sends
+  - reminder scenarios `reminder_24h` and `reminder_2h` in `/test/flowsell-demo`
+  - hides raw JSON/debug output and shows readable send status, message preview, warnings and validation errors
 
 ### Notes
 - Real sends remain disabled by default (`FLOWSELL_DRY_RUN=true`, `TEST_MODE` unchanged).

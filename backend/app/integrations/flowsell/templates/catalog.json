@@ -19,6 +19,24 @@
       "placeholders": ["client_name", "service_name", "appointment_date", "appointment_time", "master_name", "booking_link"]
     },
     {
+      "id": "reminder_24h_template",
+      "category": "reminders",
+      "event": "reminder_24h",
+      "service_types": ["default"],
+      "title": "Напоминание за 24 часа",
+      "text": "{client_name}, здравствуйте!\n\nНапоминаем о вашей записи завтра 💬\n\nУслуга: {service_name}\nДата и время: {appointment_date} в {appointment_time}\nМастер: {master_name}\n\nЕсли нужно изменить или отменить запись, используйте ссылку:\n{booking_link}\n\nДо встречи в салоне!",
+      "placeholders": ["client_name", "service_name", "appointment_date", "appointment_time", "master_name", "booking_link"]
+    },
+    {
+      "id": "reminder_2h_template",
+      "category": "reminders",
+      "event": "reminder_2h",
+      "service_types": ["default"],
+      "title": "Напоминание за 2 часа",
+      "text": "{client_name}, здравствуйте!\n\nНапоминаем: ваша запись уже сегодня через 2 часа ⏰\n\nУслуга: {service_name}\nВремя: {appointment_time}\nМастер: {master_name}\n\nАдрес и детали записи можно посмотреть по ссылке:\n{booking_link}\n\nЖдём вас!",
+      "placeholders": ["client_name", "service_name", "appointment_time", "master_name", "booking_link"]
+    },
+    {
       "id": "review_default_template",
       "category": "reviews",
       "event": "review_request",
