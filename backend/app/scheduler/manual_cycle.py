@@ -22,6 +22,7 @@ from app.scheduler.execution_preview import (
     SchedulerExecutionPreviewInput,
     build_scheduler_execution_preview,
 )
+from app.scheduler.monitoring import record_manual_cycle_result
 from app.scheduler.staging_execution import StagingProviderDiagnostics, build_staging_provider_diagnostics
 
 
@@ -158,29 +159,33 @@ async def execute_manual_scheduler_cycle(
     timeline.append("eligible_candidates_filtered")
 
     if guard_errors:
-        return _blocked_result(
-            cycle_input=cycle_input,
-            current=current,
-            automation_enabled_before=automation_enabled_before,
-            candidates_found=preview.candidates_found,
-            eligible_candidates_found=len(eligible),
-            skipped_candidates=skipped,
-            timeline=timeline + ["blocked_before_send_adapter"],
-            safety_guards=safety_guards,
-            guard_errors=guard_errors,
+        return _record_and_return(
+            _blocked_result(
+                cycle_input=cycle_input,
+                current=current,
+                automation_enabled_before=automation_enabled_before,
+                candidates_found=preview.candidates_found,
+                eligible_candidates_found=len(eligible),
+                skipped_candidates=skipped,
+                timeline=timeline + ["blocked_before_send_adapter"],
+                safety_guards=safety_guards,
+                guard_errors=guard_errors,
+            ),
         )
 
     if not eligible:
-        return _blocked_result(
-            cycle_input=cycle_input,
-            current=current,
-            automation_enabled_before=automation_enabled_before,
-            candidates_found=preview.candidates_found,
-            eligible_candidates_found=0,
-            skipped_candidates=skipped,
-            timeline=timeline + ["no_eligible_candidates"],
-            safety_guards=safety_guards,
-            guard_errors=["no eligible candidates for this manual cycle"],
+        return _record_and_return(
+            _blocked_result(
+                cycle_input=cycle_input,
+                current=current,
+                automation_enabled_before=automation_enabled_before,
+                candidates_found=preview.candidates_found,
+                eligible_candidates_found=0,
+                skipped_candidates=skipped,
+                timeline=timeline + ["no_eligible_candidates"],
+                safety_guards=safety_guards,
+                guard_errors=["no eligible candidates for this manual cycle"],
+            ),
         )
 
     selected = eligible[0]
@@ -203,30 +208,32 @@ async def execute_manual_scheduler_cycle(
         diagnostics = await build_staging_provider_diagnostics(message_id=result.message_id, settings=current)
         timeline.append("provider_diagnostics_completed")
 
-    return ManualCycleResult(
-        manual_trigger_only=True,
-        single_cycle_execution=True,
-        max_eligible_sends_per_cycle=1,
-        confirm_manual_cycle=cycle_input.confirm_manual_cycle,
-        blocked=False,
-        dry_run=result.dry_run,
-        automation_enabled_before=automation_enabled_before,
-        automation_enabled_after=scheduler_setup.is_automation_enabled(),
-        candidates_found=preview.candidates_found,
-        eligible_candidates_found=len(eligible),
-        skipped_candidates=skipped,
-        executed_send=_executed_send(selected, result, diagnostics),
-        execution_summary="Manual single-cycle completed with one controlled send attempt.",
-        execution_timeline=timeline,
-        safety_guards=safety_guards,
-        guard_errors=[],
-        provider_access=bool(result.provider_response_preview or result.message_id),
-        send_adapter_called=True,
-        send_pipeline_called=False,
-        background_execution=False,
-        cron_execution=False,
-        queue_execution=False,
-        bulk_execution=False,
+    return _record_and_return(
+        ManualCycleResult(
+            manual_trigger_only=True,
+            single_cycle_execution=True,
+            max_eligible_sends_per_cycle=1,
+            confirm_manual_cycle=cycle_input.confirm_manual_cycle,
+            blocked=False,
+            dry_run=result.dry_run,
+            automation_enabled_before=automation_enabled_before,
+            automation_enabled_after=scheduler_setup.is_automation_enabled(),
+            candidates_found=preview.candidates_found,
+            eligible_candidates_found=len(eligible),
+            skipped_candidates=skipped,
+            executed_send=_executed_send(selected, result, diagnostics),
+            execution_summary="Manual single-cycle completed with one controlled send attempt.",
+            execution_timeline=timeline,
+            safety_guards=safety_guards,
+            guard_errors=[],
+            provider_access=bool(result.provider_response_preview or result.message_id),
+            send_adapter_called=True,
+            send_pipeline_called=False,
+            background_execution=False,
+            cron_execution=False,
+            queue_execution=False,
+            bulk_execution=False,
+        ),
     )
 
 
@@ -382,3 +389,8 @@ def _blocked_result(
         queue_execution=False,
         bulk_execution=False,
     )
+
+
+def _record_and_return(result: ManualCycleResult) -> ManualCycleResult:
+    record_manual_cycle_result(result)
+    return result

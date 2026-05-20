@@ -13,6 +13,7 @@ from app.scheduler.execution_preview import (
     build_scheduler_execution_preview,
 )
 from app.scheduler.manual_cycle import ManualCycleInput, execute_manual_scheduler_cycle
+from app.scheduler.monitoring import build_scheduler_monitoring_snapshot
 from app.scheduler import setup as scheduler_setup
 from app.scheduler.staging_execution import (
     StagingExecutionInput,
@@ -1838,6 +1839,229 @@ MANUAL_CYCLE_HTML = """
 """
 
 
+MONITORING_HTML = """
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scheduler monitoring</title>
+  <style>
+    :root {
+      --bg: #f6f8fc;
+      --card: #ffffff;
+      --text: #172033;
+      --muted: #667085;
+      --border: #dfe5ef;
+      --primary: #2563eb;
+      --success: #047857;
+      --danger: #b91c1c;
+      --warning-bg: #fff7ed;
+      --warning-border: #fed7aa;
+      --badge: #eef4ff;
+      --badge-border: #c7d7fe;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top left, #eaf1ff, transparent 34%), var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    main { width: min(1180px, calc(100% - 28px)); margin: 28px auto; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      box-shadow: 0 20px 55px rgba(23, 32, 51, 0.08);
+      padding: 26px;
+    }
+    h1 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 34px); letter-spacing: -0.03em; }
+    h2 { margin: 24px 0 10px; font-size: 18px; }
+    p { margin: 0; color: var(--muted); }
+    .badges { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0; }
+    .badge {
+      border: 1px solid var(--badge-border);
+      border-radius: 999px;
+      background: var(--badge);
+      color: #1e3a8a;
+      font-weight: 800;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+    .notice {
+      margin: 18px 0;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      color: #7c2d12;
+      font-weight: 650;
+    }
+    button {
+      border: 0;
+      border-radius: 13px;
+      padding: 13px 20px;
+      background: var(--primary);
+      color: #fff;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 750;
+      min-height: 48px;
+      margin-top: 18px;
+    }
+    .status { min-height: 24px; font-weight: 750; margin-top: 10px; }
+    .status.error { color: var(--danger); }
+    .status.success { color: var(--success); }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+    .metric, .panel {
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      padding: 13px;
+      background: #fbfcff;
+    }
+    .metric span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+    .panel { margin-top: 12px; }
+    .ok { color: var(--success); font-weight: 800; }
+    .danger { color: var(--danger); font-weight: 800; }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    @media (max-width: 860px) {
+      main { width: min(100% - 20px, 1180px); margin: 10px auto; }
+      .card { padding: 18px; border-radius: 18px; }
+      .grid { grid-template-columns: 1fr; }
+      button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Scheduler monitoring</h1>
+      <p>Read-only dashboard для наблюдения перед будущим staged automation rollout.</p>
+      <div class="badges">
+        <div class="badge">Только observability</div>
+        <div class="badge">Без send adapter</div>
+        <div class="badge">Без provider calls</div>
+        <div class="badge">Без изменения automation state</div>
+      </div>
+      <div class="notice">
+        Эта страница не запускает scheduler execution, cron, background loops, queues или continuous sends.
+      </div>
+      <button id="refresh">Обновить dashboard</button>
+      <div id="status" class="status"></div>
+
+      <h2>Automation / Safety</h2>
+      <div class="grid">
+        <div class="metric"><span>Automation</span><strong id="automationEnabled">-</strong></div>
+        <div class="metric"><span>Emergency stop</span><strong id="emergencyStop">-</strong></div>
+        <div class="metric"><span>Dry-run</span><strong id="dryRun">-</strong></div>
+        <div class="metric"><span>TEST_RECIPIENTS</span><strong id="testRecipients">-</strong></div>
+      </div>
+
+      <h2>Execution state</h2>
+      <div class="grid">
+        <div class="metric"><span>Background execution</span><strong id="backgroundExecution">false</strong></div>
+        <div class="metric"><span>Cron execution</span><strong id="cronExecution">false</strong></div>
+        <div class="metric"><span>Queue/Bulk</span><strong id="queueBulk">false</strong></div>
+        <div class="metric"><span>Last send result</span><strong id="lastSendResult">-</strong></div>
+      </div>
+
+      <h2>Candidates snapshot</h2>
+      <div class="grid">
+        <div class="metric"><span>Eligible candidates</span><strong id="eligibleCount">0</strong></div>
+        <div class="metric"><span>Skipped candidates</span><strong id="skippedCount">0</strong></div>
+        <div class="metric"><span>Last template</span><strong id="lastTemplate">-</strong></div>
+        <div class="metric"><span>Last event</span><strong id="lastEvent">-</strong></div>
+      </div>
+      <div class="panel">
+        <h2>Skipped reasons summary</h2>
+        <ul id="skippedReasons"></ul>
+      </div>
+
+      <div class="panel">
+        <h2>Last manual cycle</h2>
+        <div id="lastManualCycle"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Last provider diagnostics</h2>
+        <div id="providerDiagnostics"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Execution history summary</h2>
+        <ul id="history"></ul>
+      </div>
+
+      <div class="panel">
+        <h2>Safety guards</h2>
+        <ul id="safetyGuards"></ul>
+      </div>
+    </section>
+  </main>
+  <script>
+    const statusEl = document.getElementById("status");
+    const setStatus = (text, type = "") => {
+      statusEl.textContent = text;
+      statusEl.className = `status ${type}`.trim();
+    };
+    const setText = (id, value) => { document.getElementById(id).textContent = value ?? "-"; };
+    const list = (items) => (items || []).map((item) => `<li>${item}</li>`).join("") || "<li>Нет данных</li>";
+    const objectList = (obj) => Object.entries(obj || {}).map(([key, value]) => `<li>${key}: ${value}</li>`).join("") || "<li>Нет данных</li>";
+
+    async function refresh() {
+      setStatus("Обновляем read-only monitoring...");
+      try {
+        const response = await fetch("/scheduler/monitoring/status");
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Не удалось загрузить monitoring.");
+
+        setText("automationEnabled", data.automation_enabled ? "enabled" : "disabled");
+        setText("emergencyStop", data.emergency_stop_active ? "active" : "clear");
+        setText("dryRun", String(data.dry_run));
+        setText("testRecipients", data.test_recipients_configured ? `${data.test_recipient_count} configured` : "not configured");
+        setText("backgroundExecution", String(data.background_execution_enabled));
+        setText("cronExecution", String(data.cron_execution_enabled));
+        setText("queueBulk", `${data.queue_execution_enabled}/${data.bulk_execution_enabled}`);
+        setText("lastSendResult", data.last_send_result);
+        setText("eligibleCount", data.eligible_candidates_count);
+        setText("skippedCount", data.skipped_candidates_count);
+        setText("lastTemplate", data.last_selected_template || "-");
+        setText("lastEvent", data.last_selected_event || "-");
+        document.getElementById("skippedReasons").innerHTML = objectList(data.skipped_reasons_summary);
+        document.getElementById("lastManualCycle").innerHTML = `
+          <div><strong>Last manual cycle:</strong> ${data.last_manual_cycle_at || "нет данных в этом процессе"}</div>
+          <div><strong>Last execution timestamp:</strong> ${data.last_execution_timestamp || "-"}</div>
+          <div><strong>Emergency stop reason:</strong> ${data.emergency_stop_reason || "-"}</div>
+        `;
+        const diagnostics = data.last_provider_diagnostics || {};
+        document.getElementById("providerDiagnostics").innerHTML = `
+          <ul>
+            <li>provider_delivery_state: ${diagnostics.provider_delivery_state || "-"}</li>
+            <li>whatsapp_session_state: ${diagnostics.whatsapp_session_state || "-"}</li>
+            <li>delivery_status: ${diagnostics.delivery_status || "-"}</li>
+          </ul>
+        `;
+        document.getElementById("history").innerHTML = list((data.execution_history_summary || []).map(
+          (item) => `${item.recorded_at}: ${item.summary} | sent=${item.sent} | template=${item.selected_template || "-"}`
+        ));
+        document.getElementById("safetyGuards").innerHTML = list(data.safety_guards);
+        setStatus("Monitoring обновлён. Execution не запускался.", "success");
+      } catch (error) {
+        setStatus(error.message || "Ошибка monitoring.", "error");
+      }
+    }
+
+    document.getElementById("refresh").addEventListener("click", refresh);
+    refresh();
+  </script>
+</body>
+</html>
+"""
+
+
 class SchedulerToggleRequest(BaseModel):
     enabled: bool
 
@@ -2101,6 +2325,46 @@ class SchedulerManualCycleResponse(BaseModel):
     bulk_execution: bool
 
 
+class SchedulerMonitoringHistoryItemResponse(BaseModel):
+    recorded_at: str
+    blocked: bool
+    sent: bool
+    selected_template: str | None
+    selected_event: str | None
+    provider_delivery_state: str | None
+    candidates_found: int
+    eligible_candidates_found: int
+    skipped_candidates_count: int
+    summary: str
+
+
+class SchedulerMonitoringResponse(BaseModel):
+    read_only: bool
+    automation_enabled: bool
+    scheduler_running: bool
+    background_execution_enabled: bool
+    cron_execution_enabled: bool
+    queue_execution_enabled: bool
+    bulk_execution_enabled: bool
+    emergency_stop_active: bool
+    emergency_stop_reason: str
+    dry_run: bool
+    test_recipients_configured: bool
+    test_recipient_count: int
+    active_execution_enabled: bool
+    last_manual_cycle_at: str | None
+    last_execution_timestamp: str | None
+    last_send_result: str
+    eligible_candidates_count: int
+    skipped_candidates_count: int
+    skipped_reasons_summary: dict[str, int]
+    last_selected_template: str | None
+    last_selected_event: str | None
+    last_provider_diagnostics: dict | None
+    execution_history_summary: list[SchedulerMonitoringHistoryItemResponse]
+    safety_guards: list[str]
+
+
 class SchedulerStagingSendTestResponse(BaseModel):
     manual_trigger_only: bool
     single_message_execution: bool
@@ -2166,6 +2430,18 @@ async def scheduler_manual_cycle_page() -> HTMLResponse:
     return HTMLResponse(MANUAL_CYCLE_HTML)
 
 
+@router.get("/monitoring", response_class=HTMLResponse, include_in_schema=False)
+async def scheduler_monitoring_page() -> HTMLResponse:
+    """Human-friendly read-only scheduler monitoring dashboard."""
+    return HTMLResponse(MONITORING_HTML)
+
+
+@router.get("/status-dashboard", response_class=HTMLResponse, include_in_schema=False)
+async def scheduler_status_dashboard_page() -> HTMLResponse:
+    """Alias for read-only scheduler monitoring dashboard."""
+    return HTMLResponse(MONITORING_HTML)
+
+
 @router.post("/dry-run-preview", response_model=SchedulerDryRunPreviewResponse)
 async def scheduler_dry_run_preview(
     body: SchedulerDryRunPreviewRequest,
@@ -2218,6 +2494,13 @@ async def scheduler_manual_cycle(
         ),
     )
     return SchedulerManualCycleResponse(**result.to_dict())
+
+
+@router.get("/monitoring/status", response_model=SchedulerMonitoringResponse)
+async def scheduler_monitoring_status(db: SessionDep) -> SchedulerMonitoringResponse:
+    """Read-only scheduler observability snapshot. Does not execute or send."""
+    result = await build_scheduler_monitoring_snapshot(db)
+    return SchedulerMonitoringResponse(**result.to_dict())
 
 
 @router.post("/staging-execute-preview", response_model=SchedulerStagingExecutePreviewResponse)
