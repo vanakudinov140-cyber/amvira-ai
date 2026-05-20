@@ -182,16 +182,16 @@ PLANNER_PREVIEW_HTML = """
   <main>
     <section class="card">
       <h1>Проверка логики планировщика</h1>
-      <p>Безопасный preview: показывает, какой сценарий был бы выбран для одной записи. Сообщения не отправляются.</p>
+      <p>Безопасная проверка: показывает, какой сценарий был бы выбран для одной записи. Сообщения не отправляются.</p>
 
       <div class="badges">
-        <div class="badge">DRY RUN ONLY</div>
-        <div class="badge">NO REAL SENDS</div>
-        <div class="badge">PROVIDER DISABLED</div>
+        <div class="badge">Только проверка</div>
+        <div class="badge">Без реальных отправок</div>
+        <div class="badge">Провайдер отключён</div>
       </div>
 
       <div class="notice">
-        Эта страница не запускает cron, фоновые задачи, очереди или отправки. Она вызывает только simulation endpoint.
+        Эта страница не запускает расписание, фоновые задачи, очереди или отправки. Она только показывает безопасный расчёт для администратора.
       </div>
 
       <form id="plannerForm">
@@ -210,7 +210,7 @@ PLANNER_PREVIEW_HTML = """
         <label>
           Номер клиента
           <input id="client_phone" name="client_phone" inputmode="tel" placeholder="79991234567" />
-          <span class="help">Используется только для preview. Получатель берётся из TEST_RECIPIENTS.</span>
+          <span class="help">Используется только для проверки. Реальный получатель берётся из списка тестовых номеров.</span>
         </label>
         <label>
           Тип напоминания
@@ -231,24 +231,26 @@ PLANNER_PREVIEW_HTML = """
           </select>
         </label>
         <div class="actions">
-          <button id="submitButton" type="submit">Показать preview</button>
+          <button id="submitButton" type="submit">Показать проверку</button>
           <div id="status" class="status" aria-live="polite"></div>
         </div>
       </form>
 
       <section id="result" class="result">
-        <h2>Результат preview</h2>
+        <h2>Результат проверки</h2>
         <div class="summary">
-          <div class="metric"><span>Найден сценарий</span><strong id="matchedEvent">-</strong></div>
+          <div class="metric"><span>Тип сценария</span><strong id="matchedFlow">-</strong></div>
+          <div class="metric"><span>Найденное событие</span><strong id="matchedEvent">-</strong></div>
           <div class="metric"><span>Категория услуги</span><strong id="matchedCategory">-</strong></div>
           <div class="metric"><span>Выбран шаблон</span><strong id="templateId">-</strong></div>
-          <div class="metric"><span>Правило задержки</span><strong id="delayRule">-</strong></div>
-          <div class="metric"><span>Dry-run режим</span><strong id="dryRun">-</strong></div>
-          <div class="metric"><span>Отправка заблокирована</span><strong id="blocked">-</strong></div>
+          <div class="metric"><span>Когда отправлялось бы</span><strong id="delayRule">-</strong></div>
+          <div class="metric"><span>Режим проверки включён</span><strong id="dryRun">-</strong></div>
+          <div class="metric"><span>Заблокировано защитой</span><strong id="blocked">-</strong></div>
+          <div class="metric"><span>План допускает отправку</span><strong id="wouldSend">-</strong></div>
         </div>
-        <h2>Почему выбран этот flow</h2>
+        <h2>Почему выбран этот сценарий</h2>
         <div id="reasons" class="details"></div>
-        <h2>Safety guards</h2>
+        <h2>Защитные ограничения</h2>
         <div id="guards" class="details"></div>
       </section>
     </section>
@@ -261,6 +263,46 @@ PLANNER_PREVIEW_HTML = """
     const resultNode = document.getElementById("result");
     const yesNo = (value) => value ? "Да" : "Нет";
     const getValue = (id) => document.getElementById(id).value.trim();
+    const flowLabels = {
+      review: "Отзыв после визита",
+      reminder: "Напоминание о визите"
+    };
+    const categoryLabels = {
+      reminder: "Напоминание",
+      new_client: "Новый клиент",
+      haircut: "Стрижка",
+      coloring: "Окрашивание",
+      brows: "Брови",
+      care: "Уход",
+      makeup: "Макияж",
+      styling: "Укладка"
+    };
+    const eventLabels = {
+      reminder_24h: "Напоминание за 24 часа до визита",
+      reminder_2h: "Напоминание за 2 часа до визита",
+      review_new_client_60m: "Запрос отзыва новому клиенту через 60 минут",
+      review_haircut_3d: "Запрос отзыва после стрижки через 3 дня",
+      review_coloring_3d: "Запрос отзыва после окрашивания через 3 дня",
+      review_brows_7d: "Запрос отзыва после услуги по бровям через 7 дней",
+      review_care_7d: "Запрос отзыва после ухода через 7 дней",
+      review_makeup_7d: "Запрос отзыва после макияжа через 7 дней",
+      review_styling_7d: "Запрос отзыва после укладки через 7 дней"
+    };
+    const safetyGuardLabels = {
+      "no active scheduler execution": "Автоматический планировщик не запущен",
+      "no background infinite loops": "Фоновые циклы не работают",
+      "max 1 record per cycle": "В будущей проверке разрешена максимум 1 запись за цикл",
+      "TEST_RECIPIENTS only": "Разрешены только тестовые получатели",
+      "FLOWSELL_DRY_RUN required": "Обязателен режим без реальной отправки",
+      "no queues/workers/retry loops": "Очереди, воркеры и повторные попытки не используются",
+      "controlled send adapter remains the only send path": "Единственный путь отправки остаётся под ручным контролем"
+    };
+    const guardErrorLabels = {
+      "no matching flow": "Подходящий сценарий не найден",
+      "SCHEDULER_STAGING_MAX_RECORDS must be 1": "Лимит проверки должен быть ровно 1 запись",
+      "FLOWSELL_DRY_RUN must be true for scheduler dry-run planner": "Для планировщика должен быть включён режим без реальной отправки",
+      "TEST_RECIPIENTS must contain at least one phone": "Нужно указать хотя бы один тестовый номер"
+    };
 
     const setStatus = (message, kind = "") => {
       statusNode.textContent = message;
@@ -273,6 +315,32 @@ PLANNER_PREVIEW_HTML = """
       }
       return `<ul>${items.map((item) => `<li>${item}</li>`).join("")}</ul>`;
     };
+
+    const labelFor = (labels, value) => labels[value] || value || "-";
+
+    const recipientSourceText = (source) => {
+      if (source === "TEST_RECIPIENTS[0]") return "первый тестовый номер";
+      if (source === "none") return "получатель не настроен";
+      return source || "не указан";
+    };
+
+    const reasonText = (reason) => {
+      if (reason === "manual reminder_kind=24h selected") return "Администратор выбрал напоминание за 24 часа.";
+      if (reason === "manual reminder_kind=2h selected") return "Администратор выбрал напоминание за 2 часа.";
+      if (reason === "is_new_client=true matched new client review flow") return "Клиент отмечен как новый, поэтому выбран запрос отзыва после первого визита.";
+      if (reason === "service category was not matched") return "Не удалось определить категорию услуги. Сценарий отзыва не выбран.";
+      if (reason.startsWith("service_name matched category=")) {
+        const category = reason.replace("service_name matched category=", "");
+        return `Услуга совпала с категорией: ${labelFor(categoryLabels, category)}.`;
+      }
+      if (reason.startsWith("no review event registered for category=")) {
+        const category = reason.replace("no review event registered for category=", "");
+        return `Для категории "${labelFor(categoryLabels, category)}" пока нет сценария отзыва.`;
+      }
+      return reason;
+    };
+
+    const translateItems = (items, labels) => (items || []).map((item) => labels[item] || reasonText(item));
 
     const delayText = (delayRule) => {
       if (!delayRule) return "-";
@@ -289,25 +357,29 @@ PLANNER_PREVIEW_HTML = """
     };
 
     const renderResult = (data) => {
-      document.getElementById("matchedEvent").textContent = data.matched_event || "-";
-      document.getElementById("matchedCategory").textContent = data.matched_category || "-";
+      document.getElementById("matchedFlow").textContent = labelFor(flowLabels, data.matched_flow);
+      document.getElementById("matchedEvent").textContent = labelFor(eventLabels, data.matched_event);
+      document.getElementById("matchedCategory").textContent = labelFor(categoryLabels, data.matched_category);
       document.getElementById("templateId").textContent = data.template_id || "-";
       document.getElementById("delayRule").textContent = delayText(data.delay_rule);
       document.getElementById("dryRun").textContent = yesNo(data.dry_run);
       document.getElementById("blocked").textContent = yesNo(data.blocked_by_guard);
+      document.getElementById("wouldSend").textContent = data.would_send
+        ? "Да, если бы автоматика была включена"
+        : "Нет";
 
       document.getElementById("reasons").innerHTML = [
-        `<div><strong>Причины:</strong>${renderList(data.reasons)}</div>`,
-        `<div><strong>Получатель:</strong> ${data.selected_recipient || "не выбран"} (${data.recipient_source})</div>`,
-        `<div><strong>Будет отправлено в реальности:</strong> Нет, это только preview.</div>`
+        `<div><strong>Причины выбора:</strong>${renderList(translateItems(data.reasons, {}))}</div>`,
+        `<div><strong>Получатель для проверки:</strong> ${data.selected_recipient || "не выбран"} (${recipientSourceText(data.recipient_source)})</div>`,
+        `<div><strong>Реальная отправка:</strong> не выполняется, это только безопасная проверка.</div>`
       ].join("");
 
       document.getElementById("guards").innerHTML = [
-        `<div><strong>Ошибки guard:</strong>${renderList(data.guard_errors)}</div>`,
-        `<div><strong>Активные ограничения:</strong>${renderList(data.safety_guards)}</div>`,
-        `<div><strong>Provider access:</strong> ${yesNo(data.provider_access)}</div>`,
-        `<div><strong>Send pipeline called:</strong> ${yesNo(data.send_pipeline_called)}</div>`,
-        `<div><strong>Background execution:</strong> ${yesNo(data.background_execution)}</div>`
+        `<div><strong>Что остановило бы отправку:</strong>${renderList(translateItems(data.guard_errors, guardErrorLabels), "ничего")}</div>`,
+        `<div><strong>Активные защитные ограничения:</strong>${renderList(translateItems(data.safety_guards, safetyGuardLabels))}</div>`,
+        `<div><strong>Доступ к провайдеру отправки:</strong> ${data.provider_access ? "разрешён" : "отключён"}</div>`,
+        `<div><strong>Контур отправки вызывался:</strong> ${yesNo(data.send_pipeline_called)}</div>`,
+        `<div><strong>Фоновое выполнение запускалось:</strong> ${yesNo(data.background_execution)}</div>`
       ].join("");
 
       resultNode.classList.add("visible");
@@ -325,7 +397,7 @@ PLANNER_PREVIEW_HTML = """
       };
 
       button.disabled = true;
-      setStatus("Считаем preview...", "");
+      setStatus("Готовим безопасную проверку...", "");
       try {
         const response = await fetch("/scheduler/dry-run-preview", {
           method: "POST",
@@ -335,11 +407,11 @@ PLANNER_PREVIEW_HTML = """
         const data = await response.json();
         renderResult(data);
         if (!response.ok) {
-          setStatus("Не удалось построить preview. Проверьте данные.", "error");
+          setStatus("Не удалось подготовить проверку. Проверьте данные.", "error");
         } else if (data.blocked_by_guard) {
-          setStatus("Preview построен, но отправка была бы заблокирована safety guard'ами.", "error");
+          setStatus("Проверка готова: защитные ограничения заблокировали бы отправку.", "error");
         } else {
-          setStatus("Preview построен безопасно. Реальных отправок нет.", "success");
+          setStatus("Проверка готова. Реальных отправок нет.", "success");
         }
       } catch (error) {
         setStatus("Не удалось связаться с сервером.", "error");

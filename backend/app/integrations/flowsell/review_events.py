@@ -8,6 +8,7 @@ future staging work.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Literal
 
 ReviewDelayType = Literal["minutes", "days"]
@@ -85,12 +86,33 @@ REVIEW_EVENT_REGISTRY: tuple[ReviewEventDefinition, ...] = (
 )
 
 SERVICE_CATEGORY_KEYWORDS: dict[ReviewServiceCategory, tuple[str, ...]] = {
-    "haircut": ("стриж", "haircut"),
-    "coloring": ("окраш", "color", "colour", "мелирован", "тонирован"),
-    "brows": ("бров", "brow", "eyebrow"),
-    "care": ("уход", "care", "spa", "спа"),
+    "haircut": ("стриж", "подравнив", "челк", "haircut", "cut"),
+    "coloring": (
+        "окраш",
+        "тонир",
+        "мелирован",
+        "балаяж",
+        "шатуш",
+        "аиртач",
+        "airtouch",
+        "колор",
+        "color",
+        "colour",
+    ),
+    "brows": ("бров", "архитектур", "ламинирован", "brow", "eyebrow"),
+    "care": (
+        "уход",
+        "восстанов",
+        "реконструкц",
+        "кератин",
+        "ботокс",
+        "маск",
+        "care",
+        "spa",
+        "спа",
+    ),
     "makeup": ("макияж", "makeup", "визаж"),
-    "styling": ("уклад", "styling", "локон", "причес", "причёс"),
+    "styling": ("уклад", "локон", "причес", "styling", "style"),
     "new_client": (),
 }
 
@@ -104,7 +126,7 @@ def get_review_event(event: str) -> ReviewEventDefinition:
 
 
 def match_review_service_category(service_name: str) -> ReviewServiceCategory | None:
-    normalized = service_name.strip().lower()
+    normalized = _normalize_service_name(service_name)
     if not normalized:
         return None
 
@@ -114,3 +136,8 @@ def match_review_service_category(service_name: str) -> ReviewServiceCategory | 
         if any(keyword in normalized for keyword in keywords):
             return category
     return None
+
+
+def _normalize_service_name(service_name: str) -> str:
+    normalized = service_name.strip().lower().replace("ё", "е")
+    return re.sub(r"\s+", " ", normalized)

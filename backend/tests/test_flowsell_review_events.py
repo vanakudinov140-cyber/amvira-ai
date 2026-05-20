@@ -48,3 +48,19 @@ def test_review_event_lookup_and_service_category_matching() -> None:
     assert match_review_service_category("Вечерний макияж") == "makeup"
     assert match_review_service_category("Укладка локоны") == "styling"
     assert match_review_service_category("") is None
+
+
+def test_review_service_category_matching_real_salon_names() -> None:
+    examples = {
+        "Стрижка женская": "haircut",
+        "Женская стрижка": "haircut",
+        "Окрашивание волос": "coloring",
+        "Окрашивание в один тон": "coloring",
+        "Архитектура бровей": "brows",
+        "Уход для волос": "care",
+        "Вечерний макияж": "makeup",
+        "Укладка волос": "styling",
+    }
+
+    for service_name, expected_category in examples.items():
+        assert match_review_service_category(service_name) == expected_category
