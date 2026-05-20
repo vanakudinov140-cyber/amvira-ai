@@ -89,6 +89,27 @@ def test_catalog_maps_service_type_to_review_template() -> None:
 
     assert rendered.template_id == "review_coloring_template"
 
+    assert catalog.render(
+        event="review_request",
+        service_type="haircut",
+        values={
+            "client_name": "Анна",
+            "service_name": "Стрижка",
+            "appointment_date": "21 мая",
+            "appointment_time": "12:00",
+        },
+    ).template_id == "review_haircut_template"
+    assert catalog.render(
+        event="review_request",
+        service_type="makeup",
+        values={"client_name": "Анна", "service_name": "Макияж"},
+    ).template_id == "review_makeup_template"
+    assert catalog.render(
+        event="review_request",
+        service_type="styling",
+        values={"client_name": "Анна", "service_name": "Укладка"},
+    ).template_id == "review_styling_template"
+
 
 def test_catalog_selects_new_client_60m_review_template() -> None:
     catalog = load_template_catalog()
@@ -126,4 +147,41 @@ def test_catalog_falls_back_to_default_template() -> None:
     )
 
     assert rendered.template_id == "review_default_template"
-    assert "ссылка для записи" in rendered.text
+    assert "ВНЕ РАМОК" in rendered.text
+
+
+def test_catalog_production_links_are_explicit_https() -> None:
+    catalog = load_template_catalog()
+    values = {
+        "client_name": "Анна",
+        "service_name": "Стрижка",
+        "appointment_date": "21 мая",
+        "appointment_time": "12:00",
+        "master_name": "Мария",
+        "booking_link": "https://example.com/booking",
+    }
+
+    rendered_templates = [
+        catalog.render(event="reminder_24h", values=values),
+        catalog.render(event="reminder_2h", values=values),
+        catalog.render(event="review_request", service_type="haircut", values=values),
+        catalog.render(event="review_request", service_type="coloring", values=values),
+        catalog.render(event="review_request", service_type="brows", values=values),
+        catalog.render(event="review_request", service_type="care", values=values),
+        catalog.render(event="review_request", service_type="makeup", values=values),
+        catalog.render(event="review_request", service_type="styling", values=values),
+        catalog.render(event="appointment_created", values=values),
+        catalog.render(event="appointment_rescheduled", values=values),
+        catalog.render(event="appointment_cancelled", values=values),
+    ]
+
+    for rendered in rendered_templates:
+        assert "\nclck.ru/" not in rendered.text
+        assert "\ninstagram.com/" not in rendered.text
+        assert "\nt.me/" not in rendered.text
+        assert "\nvk.com/" not in rendered.text
+        assert "(clck.ru/" not in rendered.text
+        assert "https://clck.ru/" in rendered.text
+        assert "https://instagram.com/vneramok.kzn" in rendered.text
+        assert "https://t.me/vneramok_kzn" in rendered.text
+        assert "https://vk.com/vneramok_kzn" in rendered.text

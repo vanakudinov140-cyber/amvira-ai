@@ -55,16 +55,16 @@ def test_staging_execution_preview_runs_one_record_without_provider_access() -> 
     assert result.background_execution is False
     assert result.matched_category == "haircut"
     assert result.matched_event == "review_haircut_3d"
-    assert result.template_id == "review_default_template"
+    assert result.template_id == "review_haircut_template"
     assert result.recipient_used == "79990000000"
     assert result.rendered_text_preview is not None
     assert "Анна" in result.rendered_text_preview
     assert "Стрижка женская" in result.rendered_text_preview
     assert result.send_payload_preview is not None
-    assert result.send_payload_preview.template == "review_default_template"
+    assert result.send_payload_preview.template == "review_haircut_template"
     assert result.send_payload_preview.phone == "79990000000"
     assert result.normalized_chat_id == "79990000000@c.us"
-    assert result.template_used == "review_default_template"
+    assert result.template_used == "review_haircut_template"
     assert result.render_status == "rendered"
     assert result.payload_validation_status == "valid"
     assert result.would_be_sent is True
@@ -142,7 +142,7 @@ def test_staging_execute_preview_endpoint_is_manual_and_dry_run_only(monkeypatch
     assert response.status_code == 200
     assert data["matched_category"] == "haircut"
     assert data["matched_event"] == "review_haircut_3d"
-    assert data["template_id"] == "review_default_template"
+    assert data["template_id"] == "review_haircut_template"
     assert data["recipient_used"] == "79990000000"
     assert data["dry_run_confirmed"] is True
     assert data["provider_blocked"] is True
@@ -152,7 +152,7 @@ def test_staging_execute_preview_endpoint_is_manual_and_dry_run_only(monkeypatch
     assert data["background_execution"] is False
     assert data["send_payload_preview"]["valid"] is True
     assert data["normalized_chat_id"] == "79990000000@c.us"
-    assert data["template_used"] == "review_default_template"
+    assert data["template_used"] == "review_haircut_template"
     assert data["render_status"] == "rendered"
     assert data["payload_validation_status"] == "valid"
     assert data["would_be_sent"] is True
@@ -215,7 +215,7 @@ def test_staging_real_send_calls_adapter_once_for_test_recipient(monkeypatch) ->
                 sent=True,
                 provider="flowsell",
                 event=str(kwargs["event"]),
-                template="review_default_template",
+                template="review_haircut_template",
                 rendered_text="Анна, спасибо за визит на Стрижка женская!",
                 phone=str(kwargs["phone"]),
                 chat_id="79990000000@c.us",

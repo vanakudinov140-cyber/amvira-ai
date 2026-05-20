@@ -46,7 +46,7 @@ REVIEW_EVENT_REGISTRY: tuple[ReviewEventDefinition, ...] = (
         delay_type="days",
         delay_value=3,
         service_category="haircut",
-        template_id="review_default_template",
+        template_id="review_haircut_template",
     ),
     ReviewEventDefinition(
         event="review_coloring_3d",
@@ -67,21 +67,21 @@ REVIEW_EVENT_REGISTRY: tuple[ReviewEventDefinition, ...] = (
         delay_type="days",
         delay_value=7,
         service_category="care",
-        template_id="review_default_template",
+        template_id="review_care_template",
     ),
     ReviewEventDefinition(
         event="review_makeup_7d",
         delay_type="days",
         delay_value=7,
         service_category="makeup",
-        template_id="review_default_template",
+        template_id="review_makeup_template",
     ),
     ReviewEventDefinition(
         event="review_styling_7d",
         delay_type="days",
         delay_value=7,
         service_category="styling",
-        template_id="review_default_template",
+        template_id="review_styling_template",
     ),
 )
 
