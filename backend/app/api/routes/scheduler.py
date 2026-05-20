@@ -6,7 +6,12 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from app.api.deps import SessionDep
 from app.scheduler.dry_run_planner import PlannerInput, build_scheduler_dry_run_plan
+from app.scheduler.execution_preview import (
+    SchedulerExecutionPreviewInput,
+    build_scheduler_execution_preview,
+)
 from app.scheduler import setup as scheduler_setup
 from app.scheduler.staging_execution import (
     StagingExecutionInput,
@@ -1270,6 +1275,270 @@ STAGING_SEND_TEST_HTML = """
 """
 
 
+EXECUTION_PREVIEW_HTML = """
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Preview исполнения scheduler</title>
+  <style>
+    :root {
+      --bg: #f6f8fc;
+      --card: #ffffff;
+      --text: #172033;
+      --muted: #667085;
+      --border: #dfe5ef;
+      --primary: #2563eb;
+      --success: #047857;
+      --danger: #b91c1c;
+      --warning-bg: #fff7ed;
+      --warning-border: #fed7aa;
+      --badge: #eef4ff;
+      --badge-border: #c7d7fe;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top left, #eaf1ff, transparent 34%), var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    main { width: min(1180px, calc(100% - 28px)); margin: 28px auto; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      box-shadow: 0 20px 55px rgba(23, 32, 51, 0.08);
+      padding: 26px;
+    }
+    h1 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 34px); letter-spacing: -0.03em; }
+    h2 { margin: 22px 0 10px; font-size: 18px; }
+    p { margin: 0; color: var(--muted); }
+    .badges { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0; }
+    .badge {
+      border: 1px solid var(--badge-border);
+      border-radius: 999px;
+      background: var(--badge);
+      color: #1e3a8a;
+      font-weight: 800;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+    .notice {
+      margin: 18px 0;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      color: #7c2d12;
+      font-weight: 650;
+    }
+    form {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    label { display: grid; gap: 7px; font-weight: 650; color: #263246; }
+    input, select {
+      width: 100%;
+      min-height: 46px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 11px 13px;
+      font: inherit;
+      color: var(--text);
+      background: #fff;
+    }
+    button {
+      border: 0;
+      border-radius: 13px;
+      padding: 13px 20px;
+      background: var(--primary);
+      color: #fff;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 750;
+      min-height: 48px;
+    }
+    button:disabled { opacity: 0.65; cursor: wait; }
+    .actions { grid-column: 1 / -1; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .status { min-height: 24px; font-weight: 750; }
+    .status.error { color: var(--danger); }
+    .status.success { color: var(--success); }
+    .result { margin-top: 22px; display: none; border-top: 1px solid var(--border); padding-top: 20px; }
+    .result.visible { display: block; }
+    .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+    .metric, .candidate {
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      padding: 13px;
+      background: #fbfcff;
+    }
+    .metric span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+    .candidate { margin-top: 12px; }
+    .candidate h3 { margin: 0 0 8px; font-size: 17px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
+    .ok { color: var(--success); font-weight: 800; }
+    .blocked { color: var(--danger); font-weight: 800; }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    @media (max-width: 860px) {
+      main { width: min(100% - 20px, 1180px); margin: 10px auto; }
+      .card { padding: 18px; border-radius: 18px; }
+      form, .summary, .grid { grid-template-columns: 1fr; }
+      button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Preview исполнения scheduler</h1>
+      <p>Показывает кандидатов и сообщения, которые были бы отправлены при ручном запуске планировщика.</p>
+      <div class="badges">
+        <div class="badge">Только чтение</div>
+        <div class="badge">Без реальных отправок</div>
+        <div class="badge">Без cron/background</div>
+        <div class="badge">Без queues/workers/retries</div>
+      </div>
+      <div class="notice">
+        Эта страница не запускает automation rollout. Провайдер и send adapter недоступны из этого preview.
+      </div>
+
+      <form id="executionPreviewForm">
+        <label>
+          Какие кандидаты показать
+          <select id="flow_type" name="flow_type">
+            <option value="all">Отзывы и напоминания</option>
+            <option value="review">Только отзывы после визита</option>
+            <option value="reminder">Только напоминания о визите</option>
+          </select>
+        </label>
+        <label>
+          Лимит кандидатов
+          <input id="max_candidates" name="max_candidates" type="number" min="1" max="50" value="10" />
+        </label>
+        <label>
+          Горизонт напоминаний, часов
+          <input id="reminder_horizon_hours" name="reminder_horizon_hours" type="number" min="1" max="168" value="24" />
+        </label>
+        <div class="actions">
+          <button type="submit">Построить execution preview</button>
+          <div id="status" class="status"></div>
+        </div>
+      </form>
+
+      <section id="result" class="result">
+        <h2>Итог проверки</h2>
+        <div class="summary">
+          <div class="metric"><span>Кандидатов найдено</span><strong id="candidatesFound">0</strong></div>
+          <div class="metric"><span>Provider access</span><strong id="providerAccess">false</strong></div>
+          <div class="metric"><span>Send adapter</span><strong id="sendAdapterCalled">false</strong></div>
+          <div class="metric"><span>Background/Cron</span><strong id="backgroundExecution">false</strong></div>
+        </div>
+
+        <h2>Кандидаты</h2>
+        <div id="candidates"></div>
+
+        <h2>Safety guards</h2>
+        <ul id="safetyGuards"></ul>
+      </section>
+    </section>
+  </main>
+  <script>
+    const form = document.getElementById("executionPreviewForm");
+    const statusEl = document.getElementById("status");
+    const result = document.getElementById("result");
+    const candidatesEl = document.getElementById("candidates");
+    const safetyGuardsEl = document.getElementById("safetyGuards");
+
+    const setStatus = (text, type = "") => {
+      statusEl.textContent = text;
+      statusEl.className = `status ${type}`.trim();
+    };
+
+    const list = (items) => {
+      if (!items || !items.length) return "<span class='empty'>Нет данных</span>";
+      return `<ul>${items.map((item) => `<li>${item}</li>`).join("")}</ul>`;
+    };
+
+    const renderCandidate = (candidate) => {
+      const state = candidate.would_send
+        ? "<span class='ok'>Было бы отправлено</span>"
+        : "<span class='blocked'>Не было бы отправлено сейчас</span>";
+      const delay = candidate.delay_rule
+        ? `${candidate.delay_rule.delay_value} ${candidate.delay_rule.delay_type}`
+        : "-";
+      return `
+        <article class="candidate">
+          <h3>${candidate.client_name || "Клиент"} · ${candidate.service_name || "Услуга"}</h3>
+          <div class="grid">
+            <div><strong>Статус:</strong> ${state}</div>
+            <div><strong>Flow:</strong> ${candidate.flow_type}</div>
+            <div><strong>Категория:</strong> ${candidate.matched_category || "-"}</div>
+            <div><strong>Event:</strong> ${candidate.matched_event || "-"}</div>
+            <div><strong>Template:</strong> ${candidate.selected_template || "-"}</div>
+            <div><strong>Delay:</strong> ${delay}</div>
+            <div><strong>Запись:</strong> ${candidate.yclients_record_id}</div>
+            <div><strong>Расчётное время:</strong> ${candidate.scheduled_send_at || "-"}</div>
+          </div>
+          <h4>Почему выбран</h4>
+          ${list([candidate.candidate_reason])}
+          <h4>Execution reasoning</h4>
+          ${list(candidate.execution_reasoning)}
+          <h4>Guards</h4>
+          ${list(candidate.guard_errors)}
+        </article>
+      `;
+    };
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = form.querySelector("button");
+      button.disabled = true;
+      setStatus("Строим read-only preview...");
+      result.classList.remove("visible");
+      try {
+        const payload = {
+          flow_type: document.getElementById("flow_type").value,
+          max_candidates: Number(document.getElementById("max_candidates").value || 10),
+          reminder_horizon_hours: Number(document.getElementById("reminder_horizon_hours").value || 24),
+        };
+        const response = await fetch("/scheduler/execution-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || "Не удалось построить preview.");
+        }
+
+        document.getElementById("candidatesFound").textContent = data.candidates_found;
+        document.getElementById("providerAccess").textContent = String(data.provider_access);
+        document.getElementById("sendAdapterCalled").textContent = String(data.send_adapter_called);
+        document.getElementById("backgroundExecution").textContent = String(data.background_execution || data.cron_execution);
+        candidatesEl.innerHTML = data.plans.length
+          ? data.plans.map(renderCandidate).join("")
+          : "<p class='empty'>Кандидаты не найдены.</p>";
+        safetyGuardsEl.innerHTML = (data.safety_guards || []).map((item) => `<li>${item}</li>`).join("");
+        result.classList.add("visible");
+        setStatus("Preview построен. Отправок не было.", "success");
+      } catch (error) {
+        setStatus(error.message || "Ошибка preview.", "error");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
+"""
+
+
 class SchedulerToggleRequest(BaseModel):
     enabled: bool
 
@@ -1308,6 +1577,12 @@ class SchedulerDryRunPreviewRequest(BaseModel):
     reminder_kind: str | None = None
 
 
+class SchedulerExecutionPreviewRequest(BaseModel):
+    flow_type: str = "all"
+    max_candidates: int = 10
+    reminder_horizon_hours: int = 24
+
+
 class DelayRulePreviewResponse(BaseModel):
     delay_type: str
     delay_value: int
@@ -1331,6 +1606,50 @@ class SchedulerDryRunPreviewResponse(BaseModel):
     provider_access: bool
     send_pipeline_called: bool
     background_execution: bool
+
+
+class SchedulerExecutionCandidatePlanResponse(BaseModel):
+    record_id: int
+    yclients_record_id: int
+    client_id: int | None
+    client_name: str
+    client_phone: str | None
+    service_name: str
+    appointment_datetime: str
+    flow_type: str
+    candidate_reason: str
+    matched_category: str | None
+    matched_event: str | None
+    selected_template: str | None
+    delay_rule: dict | None
+    scheduled_send_at: str | None
+    would_send: bool
+    blocked_by_guard: bool
+    execution_reasoning: list[str]
+    guard_errors: list[str]
+    planner_reasons: list[str]
+    provider_access: bool
+    send_adapter_called: bool
+    send_pipeline_called: bool
+    background_execution: bool
+    bulk_execution: bool
+
+
+class SchedulerExecutionPreviewResponse(BaseModel):
+    read_only: bool
+    manual_trigger_only: bool
+    dry_run: bool
+    provider_access: bool
+    send_adapter_called: bool
+    send_pipeline_called: bool
+    background_execution: bool
+    cron_execution: bool
+    queue_execution: bool
+    bulk_execution: bool
+    candidates_found: int
+    plans: list[SchedulerExecutionCandidatePlanResponse]
+    safety_guards: list[str]
+    execution_reasoning: list[str]
 
 
 class SchedulerStagingExecutePreviewRequest(SchedulerDryRunPreviewRequest):
@@ -1470,6 +1789,12 @@ async def scheduler_staging_send_test_page() -> HTMLResponse:
     return HTMLResponse(STAGING_SEND_TEST_HTML)
 
 
+@router.get("/execution-preview", response_class=HTMLResponse, include_in_schema=False)
+async def scheduler_execution_preview_page() -> HTMLResponse:
+    """Human-friendly UI for read-only scheduler candidate execution preview."""
+    return HTMLResponse(EXECUTION_PREVIEW_HTML)
+
+
 @router.post("/dry-run-preview", response_model=SchedulerDryRunPreviewResponse)
 async def scheduler_dry_run_preview(
     body: SchedulerDryRunPreviewRequest,
@@ -1486,6 +1811,23 @@ async def scheduler_dry_run_preview(
         ),
     )
     return SchedulerDryRunPreviewResponse(**plan.to_dict())
+
+
+@router.post("/execution-preview", response_model=SchedulerExecutionPreviewResponse)
+async def scheduler_execution_preview(
+    body: SchedulerExecutionPreviewRequest,
+    db: SessionDep,
+) -> SchedulerExecutionPreviewResponse:
+    """Read-only candidate selection and execution plan preview. Never sends."""
+    result = await build_scheduler_execution_preview(
+        db,
+        SchedulerExecutionPreviewInput(
+            flow_type=body.flow_type,  # type: ignore[arg-type]
+            max_candidates=body.max_candidates,
+            reminder_horizon_hours=body.reminder_horizon_hours,
+        ),
+    )
+    return SchedulerExecutionPreviewResponse(**result.to_dict())
 
 
 @router.post("/staging-execute-preview", response_model=SchedulerStagingExecutePreviewResponse)

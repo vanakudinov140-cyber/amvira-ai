@@ -67,10 +67,11 @@ def build_scheduler_dry_run_plan(
     planner_input: PlannerInput,
     *,
     settings: Settings | None = None,
+    require_dry_run_guard: bool = True,
 ) -> SchedulerDryRunPlan:
     current = settings or get_settings()
     status = get_scheduler_staging_status(current)
-    guard_errors = _collect_guard_errors(current)
+    guard_errors = _collect_guard_errors(current, require_dry_run_guard=require_dry_run_guard)
     recipient = _select_test_recipient(current)
     matched_event: str | None = None
     matched_category: str | None = None
@@ -143,11 +144,11 @@ def build_scheduler_dry_run_plan(
     )
 
 
-def _collect_guard_errors(settings: Settings) -> list[str]:
+def _collect_guard_errors(settings: Settings, *, require_dry_run_guard: bool = True) -> list[str]:
     errors: list[str] = []
     if settings.SCHEDULER_STAGING_MAX_RECORDS != 1:
         errors.append("SCHEDULER_STAGING_MAX_RECORDS must be 1")
-    if settings.SCHEDULER_STAGING_REQUIRE_DRY_RUN and not settings.FLOWSELL_DRY_RUN:
+    if require_dry_run_guard and settings.SCHEDULER_STAGING_REQUIRE_DRY_RUN and not settings.FLOWSELL_DRY_RUN:
         errors.append("FLOWSELL_DRY_RUN must be true for scheduler dry-run planner")
     if settings.SCHEDULER_STAGING_ONLY_TEST_RECIPIENTS and not settings.test_recipient_phones:
         errors.append("TEST_RECIPIENTS must contain at least one phone")
