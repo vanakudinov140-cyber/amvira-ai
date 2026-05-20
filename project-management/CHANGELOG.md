@@ -53,6 +53,10 @@
 - Manual review testing support:
   - added `review_new_client_60m` to `/test/flowsell-demo` with the label “Запрос отзыва новому клиенту”
   - uses existing controlled send pipeline only
+- Delayed review architecture foundation:
+  - read-only registry for `review_new_client_60m`, `review_haircut_3d`, `review_coloring_3d`, `review_brows_7d`, `review_care_7d`, `review_makeup_7d`, `review_styling_7d`
+  - service category matching foundation for haircut, coloring, brows, care, makeup and styling
+  - required by scheduler dry-run planner imports; no scheduler, cron, queues, retry loops, workers or automation enabled
 - Scheduler staging foundation:
   - read-only staging status endpoint `GET /scheduler/staging-status`
   - config layer for staging mode, dry-run enforcement, TEST_RECIPIENTS-only guard and max 1 record per future cycle
