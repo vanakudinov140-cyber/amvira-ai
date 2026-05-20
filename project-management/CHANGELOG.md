@@ -53,6 +53,18 @@
 - Manual review testing support:
   - added `review_new_client_60m` to `/test/flowsell-demo` with the label “Запрос отзыва новому клиенту”
   - uses existing controlled send pipeline only
+- Scheduler staging foundation:
+  - read-only staging status endpoint `GET /scheduler/staging-status`
+  - config layer for staging mode, dry-run enforcement, TEST_RECIPIENTS-only guard and max 1 record per future cycle
+  - docs in `deploy/SCHEDULER_STAGING_FOUNDATION.md`; no cron, jobs, queues, workers, retries or automatic sends enabled
+- Scheduler dry-run planner foundation:
+  - manual simulation endpoint `POST /scheduler/dry-run-preview`
+  - returns matched flow/category/event/template/delay/recipient guard data without render, send adapter, provider access or background execution
+  - hard guards for `FLOWSELL_DRY_RUN`, `TEST_RECIPIENTS` and max one simulated record
+- Manual planner verification UI:
+  - human-friendly page `GET /scheduler/planner-preview`
+  - uses existing `POST /scheduler/dry-run-preview` only and shows readable flow/category/template/delay/safety guard output
+  - visible `DRY RUN ONLY`, `NO REAL SENDS`, `PROVIDER DISABLED` badges
 
 ### Notes
 - Real sends remain disabled by default (`FLOWSELL_DRY_RUN=true`, `TEST_MODE` unchanged).
