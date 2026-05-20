@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import Settings, get_settings
 from app.integrations.flowsell.client import FlowsellClient, FlowsellSendResult
+from app.integrations.flowsell.mapper import retention_channel_supported
 from app.integrations.telegram.sender import TelegramSender
 from app.models.enums import MessageStatus
 from app.models.message import Message
@@ -196,6 +197,16 @@ class FlowsellService:
                     self._settings.DAILY_SEND_LIMIT,
                 )
                 break
+
+            if not retention_channel_supported(message.channel):
+                logger.warning(
+                    "flowsell: пропуск message_id=%s — канал %s не поддерживается",
+                    message.id,
+                    message.channel,
+                )
+                message.status = MessageStatus.failed
+                failed += 1
+                continue
 
             phone = self._resolve_phone(message, index)
             if not phone:

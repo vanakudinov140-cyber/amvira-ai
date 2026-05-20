@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "placeholders": [
+    "client_name",
+    "service_name",
+    "appointment_date",
+    "appointment_time",
+    "master_name",
+    "booking_link"
+  ],
+  "templates": [
+    {
+      "id": "reminder_default_template",
+      "category": "reminders",
+      "event": "reminder",
+      "service_types": ["default"],
+      "title": "Напоминание о визите",
+      "text": "Здравствуйте, {client_name}! Напоминаем о записи на {service_name}: {appointment_date} в {appointment_time}. Мастер: {master_name}. Если нужно изменить запись: {booking_link}",
+      "placeholders": ["client_name", "service_name", "appointment_date", "appointment_time", "master_name", "booking_link"]
+    },
+    {
+      "id": "review_default_template",
+      "category": "reviews",
+      "event": "review_request",
+      "service_types": ["default"],
+      "title": "Запрос отзыва",
+      "text": "{client_name}, спасибо за визит на {service_name}! Будем благодарны, если поделитесь впечатлениями: {booking_link}",
+      "placeholders": ["client_name", "service_name", "booking_link"]
+    },
+    {
+      "id": "review_coloring_template",
+      "category": "reviews",
+      "event": "review_request",
+      "service_types": ["hair_coloring", "coloring", "окрашивание"],
+      "title": "Отзыв после окрашивания",
+      "text": "{client_name}, спасибо, что выбрали нас для окрашивания. Будем рады вашему отзыву о результате и сервисе: {booking_link}",
+      "placeholders": ["client_name", "booking_link"]
+    },
+    {
+      "id": "review_brows_template",
+      "category": "reviews",
+      "event": "review_request",
+      "service_types": ["brows", "eyebrows", "брови"],
+      "title": "Отзыв после услуги по бровям",
+      "text": "{client_name}, спасибо за визит! Если вам понравился результат по бровям, оставьте, пожалуйста, короткий отзыв: {booking_link}",
+      "placeholders": ["client_name", "booking_link"]
+    },
+    {
+      "id": "appointment_created_template",
+      "category": "appointment_created",
+      "event": "appointment_created",
+      "service_types": ["default"],
+      "title": "Запись создана",
+      "text": "{client_name}, здравствуйте!\n\nВаша запись подтверждена ✅\n\nУслуга: {service_name}\nДата и время: {appointment_date} в {appointment_time}\nМастер: {master_name}\n\nЕсли нужно изменить или отменить запись, используйте ссылку:\n{booking_link}\n\nДо встречи в салоне!",
+      "placeholders": ["client_name", "service_name", "appointment_date", "appointment_time", "master_name", "booking_link"]
+    },
+    {
+      "id": "appointment_rescheduled_template",
+      "category": "appointment_rescheduled",
+      "event": "appointment_rescheduled",
+      "service_types": ["default"],
+      "title": "Запись перенесена",
+      "text": "{client_name}, здравствуйте!\n\nВаша запись перенесена 🔄\n\nУслуга: {service_name}\nНовые дата и время: {appointment_date} в {appointment_time}\nМастер: {master_name}\n\nПроверить детали или изменить запись можно по ссылке:\n{booking_link}\n\nСпасибо за понимание. До встречи!",
+      "placeholders": ["client_name", "service_name", "appointment_date", "appointment_time", "master_name", "booking_link"]
+    },
+    {
+      "id": "appointment_cancelled_template",
+      "category": "appointment_cancelled",
+      "event": "appointment_cancelled",
+      "service_types": ["default"],
+      "title": "Запись отменена",
+      "text": "{client_name}, здравствуйте!\n\nВаша запись отменена ✅\n\nУслуга: {service_name}\nДата и время: {appointment_date} в {appointment_time}\n\nЕсли захотите выбрать новое время, записаться можно здесь:\n{booking_link}\n\nБудем рады видеть вас в салоне!",
+      "placeholders": ["client_name", "service_name", "appointment_date", "appointment_time", "booking_link"]
+    },
+    {
+      "id": "aftercare_default_template",
+      "category": "aftercare",
+      "event": "aftercare",
+      "service_types": ["default"],
+      "title": "Рекомендации после визита",
+      "text": "{client_name}, спасибо за визит на {service_name}! Если появятся вопросы по уходу после процедуры, напишите нам. Записаться снова можно здесь: {booking_link}",
+      "placeholders": ["client_name", "service_name", "booking_link"]
+    }
+  ]
+}

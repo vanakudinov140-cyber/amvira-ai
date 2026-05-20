@@ -58,10 +58,13 @@ async def get_flowsell_client() -> AsyncGenerator[FlowsellClient | None, None]:
         yield None
         return
 
-    if not (settings.FLOWSELL_API_URL or "").strip() or not (settings.FLOWSELL_API_KEY or "").strip():
+    if not settings.flowsell_configured:
         raise HTTPException(
             status_code=503,
-            detail="FlowSell не настроен: задайте FLOWSELL_API_URL и FLOWSELL_API_KEY",
+            detail=(
+                "FlowSell не настроен: задайте FLOWSELL_INSTANCE_ID и FLOWSELL_API_KEY "
+                "(idInstance и apiTokenInstance из кабинета FlowSell)"
+            ),
         )
     async with FlowsellClient(settings) as client:
         yield client

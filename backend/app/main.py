@@ -22,6 +22,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.messages import router as messages_router
 from app.api.routes.retention import router as retention_router
 from app.api.routes.sync import router as sync_router
+from app.api.routes.test_flowsell import router as test_flowsell_router
 from app.api.routes.test_yclients import router as test_yclients_router
 from app.core.config import get_settings
 from app.core.exception_handlers import (
@@ -142,6 +143,7 @@ def create_app() -> FastAPI:
     application.include_router(retention_router)
     application.include_router(messages_router)
     application.include_router(test_yclients_router)
+    application.include_router(test_flowsell_router)
     application.include_router(debug_router)
     application.include_router(analytics_router)
     application.include_router(scheduler_router)

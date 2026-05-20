@@ -40,12 +40,15 @@ PostgreSQL — **отдельный managed-проект** в Amvera.
 
 ---
 
-## FlowSell (реальная отправка, когда TEST_MODE=false)
+## FlowSell WhatsApp (реальная отправка, когда TEST_MODE=false)
 
 | Переменная | Обязательно | Описание |
 |------------|-------------|----------|
-| `FLOWSELL_API_URL` | при prod send | Base URL API |
-| `FLOWSELL_API_KEY` | при prod send | API key |
+| `FLOWSELL_API_BASE_URL` | нет | `https://dev.flowsell.me/api/v1` |
+| `FLOWSELL_INSTANCE_ID` | при prod send | idInstance из кабинета |
+| `FLOWSELL_API_KEY` | при prod send | apiTokenInstance |
+
+См. [FLOWSELL_INTEGRATION.md](./FLOWSELL_INTEGRATION.md)
 
 ---
 

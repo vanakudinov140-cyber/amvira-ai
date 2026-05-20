@@ -31,8 +31,14 @@ class Settings(BaseSettings):
     YCLIENTS_COMPANY_ID: int = 0
     YCLIENTS_BASE_URL: str = "https://api.yclients.com/api/v1"
 
-    FLOWSELL_API_URL: str = ""
+    # FlowSell Flow API (WhatsApp): https://dev.flowsell.me/docs/
+    # FLOWSELL_INSTANCE_ID = idInstance, FLOWSELL_API_KEY = apiTokenInstance
+    FLOWSELL_API_BASE_URL: str = "https://dev.flowsell.me/api/v1"
+    FLOWSELL_INSTANCE_ID: str = ""
     FLOWSELL_API_KEY: str = ""
+    FLOWSELL_DRY_RUN: bool = True
+    # Устарело: оставлено для совместимости; не используется клиентом
+    FLOWSELL_API_URL: str = ""
 
     TEST_MODE: bool = False
     TEST_RECIPIENTS: str = ""
@@ -120,6 +126,14 @@ class Settings(BaseSettings):
             extra = [p.strip() for p in re.split(r"[,;\s]+", self.CORS_ORIGINS) if p.strip()]
         merged = list(dict.fromkeys(defaults + extra))
         return merged
+
+    @computed_field
+    @property
+    def flowsell_configured(self) -> bool:
+        return bool(
+            (self.FLOWSELL_INSTANCE_ID or "").strip()
+            and (self.FLOWSELL_API_KEY or "").strip(),
+        )
 
     @computed_field
     @property
