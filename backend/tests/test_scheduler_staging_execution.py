@@ -6,10 +6,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # pylint: disable=import-error
 from app.core.config import Settings
+from app.integrations.flowsell.client import FlowsellDiagnosticResult, FlowsellSendResult
 from app.integrations.flowsell.send_adapter import FlowSellControlledSendResult
 from app.scheduler.staging_execution import (
     StagingExecutionInput,
     StagingRealSendInput,
+    build_staging_provider_diagnostics,
     build_staging_execution_preview,
     execute_staging_real_send_test,
 )
@@ -256,3 +258,91 @@ def test_staging_real_send_calls_adapter_once_for_test_recipient(monkeypatch) ->
     assert result.provider_diagnostics.provider_accepted is True
     assert result.provider_diagnostics.connection_state == "not_configured"
     assert result.provider_diagnostics.delivery_status == "unavailable"
+    assert (
+        result.provider_diagnostics.delivery_summary
+        == "Provider accepted message, delivery confirmation unavailable"
+    )
+
+
+def test_provider_diagnostics_summarizes_accepted_send_when_delivery_lookup_unavailable(
+    monkeypatch,
+) -> None:
+    class FakeClient:
+        def __init__(self, settings: Settings) -> None:
+            self._settings = settings
+
+        async def __aenter__(self) -> "FakeClient":
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get_account_settings(self) -> FlowsellDiagnosticResult:
+            return FlowsellDiagnosticResult(ok=True, detail="ok", data={"wid": "account"})
+
+        async def get_qr_status(self) -> FlowsellDiagnosticResult:
+            return FlowsellDiagnosticResult(ok=True, detail="alreadyLogged", data={"type": "alreadyLogged"})
+
+        async def check_whatsapp(self, phone: str) -> FlowsellSendResult:
+            _ = phone
+            return FlowsellSendResult(ok=True, detail="exists")
+
+        async def get_message_status(
+            self,
+            *,
+            chat_id: str,
+            id_message: str,
+        ) -> FlowsellDiagnosticResult:
+            _ = (chat_id, id_message)
+            return FlowsellDiagnosticResult(ok=False, detail="HTTP 404: ")
+
+    monkeypatch.setattr("app.scheduler.staging_execution.FlowsellClient", FakeClient)
+
+    result = asyncio.run(
+        build_staging_provider_diagnostics(
+            message_id="provider-message-id",
+            settings=_settings(dry_run=False, test_mode=False),
+        ),
+    )
+
+    assert result.provider_accepted is True
+    assert result.provider_delivery_state == "accepted"
+    assert result.delivery_status == "unavailable"
+    assert result.delivery_status_available is False
+    assert result.delivery_summary == "Provider accepted message, delivery confirmation unavailable"
+    assert any("getMessage" in error for error in result.diagnostics_errors)
+
+
+def test_provider_diagnostics_summarizes_not_accepted_provider_result(monkeypatch) -> None:
+    class FakeClient:
+        def __init__(self, settings: Settings) -> None:
+            self._settings = settings
+
+        async def __aenter__(self) -> "FakeClient":
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get_account_settings(self) -> FlowsellDiagnosticResult:
+            return FlowsellDiagnosticResult(ok=True, detail="ok", data={"wid": "account"})
+
+        async def get_qr_status(self) -> FlowsellDiagnosticResult:
+            return FlowsellDiagnosticResult(ok=True, detail="alreadyLogged", data={"type": "alreadyLogged"})
+
+        async def check_whatsapp(self, phone: str) -> FlowsellSendResult:
+            _ = phone
+            return FlowsellSendResult(ok=True, detail="exists")
+
+    monkeypatch.setattr("app.scheduler.staging_execution.FlowsellClient", FakeClient)
+
+    result = asyncio.run(
+        build_staging_provider_diagnostics(
+            message_id="",
+            settings=_settings(dry_run=False, test_mode=False),
+        ),
+    )
+
+    assert result.provider_accepted is False
+    assert result.provider_delivery_state == "not_accepted"
+    assert result.delivery_summary == "Provider did not accept message"

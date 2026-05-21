@@ -164,6 +164,7 @@ class StagingProviderDiagnostics:
     delivery_status: str
     delivery_status_available: bool
     provider_delivery_state: str
+    delivery_summary: str
     possible_failure_reason: str | None
     diagnostics_errors: list[str] = field(default_factory=list)
     account_wid: str | int | None = None
@@ -621,6 +622,11 @@ async def _build_provider_diagnostics(
         delivery_status_available=delivery_status_available,
         diagnostics_errors=errors,
     )
+    delivery_summary = _diagnostic_delivery_summary(
+        provider_accepted=bool(message_id),
+        delivery_status=delivery_status,
+        delivery_status_available=delivery_status_available,
+    )
     return StagingProviderDiagnostics(
         provider_accepted=bool(message_id),
         connection_state=connection_state,
@@ -630,6 +636,7 @@ async def _build_provider_diagnostics(
         delivery_status=delivery_status,
         delivery_status_available=delivery_status_available,
         provider_delivery_state=provider_delivery_state,
+        delivery_summary=delivery_summary,
         possible_failure_reason=possible_failure_reason,
         diagnostics_errors=errors,
         account_wid=account_wid,
@@ -658,3 +665,18 @@ def _diagnostic_failure_reason(
     if not delivery_status_available and diagnostics_errors:
         return "Provider accepted message, but delivery status lookup is unavailable"
     return None
+
+
+def _diagnostic_delivery_summary(
+    *,
+    provider_accepted: bool,
+    delivery_status: str,
+    delivery_status_available: bool,
+) -> str:
+    if provider_accepted and not delivery_status_available and delivery_status == "unavailable":
+        return "Provider accepted message, delivery confirmation unavailable"
+    if provider_accepted and delivery_status_available:
+        return f"Provider accepted message, delivery status: {delivery_status}"
+    if provider_accepted:
+        return "Provider accepted message"
+    return "Provider did not accept message"
