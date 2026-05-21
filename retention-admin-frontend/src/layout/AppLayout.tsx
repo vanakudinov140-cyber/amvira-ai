@@ -1,31 +1,42 @@
-﻿import { NavLink, Outlet } from "react-router-dom";
+﻿import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { ApiStatusBadge } from "@/components/ApiStatusBadge";
-import { ENV_LABEL } from "@/constants";
+import { DEMO_MODE, ENV_LABEL } from "@/constants";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-const NAV: { to: string; label: string; end?: boolean }[] = [
-  { to: "/", label: "Dashboard", end: true },
-  { to: "/candidates", label: "Retention Candidates" },
-  { to: "/pending", label: "Pending Messages" },
-  { to: "/sync", label: "Sync Controls" },
-  { to: "/operations", label: "Operations" },
+const NAV: { to: string; label: string; testLabel: string; end?: boolean }[] = [
+  { to: "/", label: "Главная", testLabel: "Главная", end: true },
+  { to: "/candidates", label: "Кандидаты", testLabel: "Кандидаты" },
+  { to: "/pending", label: "Сообщения", testLabel: "Сообщения" },
+  { to: "/sync", label: "Синхронизация", testLabel: "Синхронизация" },
+  { to: "/operations", label: "Операции", testLabel: "Операции" },
+  { to: "/test-send", label: "Тестовая отправка", testLabel: "Тестовая отправка" },
+  { to: "/message-preview", label: "Предпросмотр", testLabel: "Предпросмотр" },
+  { to: "/demo", label: "Демонстрация", testLabel: "Демонстрация" },
 ];
 
 export function AppLayout() {
+  const location = useLocation();
+  const testSendPage = location.pathname === "/test-send";
+  const visibleNav = DEMO_MODE
+    ? NAV.filter(({ to }) => ["/demo", "/test-send", "/message-preview"].includes(to))
+    : NAV;
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/60 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight">AI Retention Admin</h1>
+            <h1 className="text-xl font-semibold tracking-tight">
+              {DEMO_MODE || testSendPage ? "Панель удержания клиентов" : "AI Retention Admin"}
+            </h1>
             <Badge variant="outline" className="border-amber-500/50 text-amber-200">
-              {ENV_LABEL}
+              {DEMO_MODE ? "Демонстрационная версия" : ENV_LABEL}
             </Badge>
-            <ApiStatusBadge />
+            {DEMO_MODE || testSendPage ? null : <ApiStatusBadge />}
           </div>
           <nav className="flex flex-wrap gap-1">
-            {NAV.map(({ to, label, end }) => (
+            {visibleNav.map(({ to, label, testLabel, end }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -39,11 +50,16 @@ export function AppLayout() {
                   )
                 }
               >
-                {label}
+                {DEMO_MODE || testSendPage ? testLabel : label}
               </NavLink>
             ))}
           </nav>
         </div>
+        {DEMO_MODE ? (
+          <div className="border-t border-sky-500/20 bg-sky-500/10 px-4 py-2 text-center text-sm text-sky-100">
+            Демонстрационная версия
+          </div>
+        ) : null}
       </header>
       <Outlet />
     </div>

@@ -20,3 +20,6 @@ export const ACTION_FILTER_OPTIONS = [
 
 export const ENV_LABEL =
   import.meta.env.VITE_ENV_LABEL?.trim() || "Тестовый режим";
+
+export const DEMO_MODE =
+  String(import.meta.env.VITE_DEMO_MODE || "").toLowerCase() === "true";

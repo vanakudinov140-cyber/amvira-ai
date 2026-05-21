@@ -17,10 +17,9 @@ export default defineConfig({
       "/analytics": { target: "http://127.0.0.1:8000", changeOrigin: true },
       "/messages": { target: "http://127.0.0.1:8000", changeOrigin: true },
       "/scheduler": { target: "http://127.0.0.1:8000", changeOrigin: true },
-      "/sync": { target: "http://127.0.0.1:8000", changeOrigin: true },
       "/retention": { target: "http://127.0.0.1:8000", changeOrigin: true },
       "/debug": { target: "http://127.0.0.1:8000", changeOrigin: true },
-      "/test": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      "^/test/": { target: "http://127.0.0.1:8000", changeOrigin: true },
     },
   },
   preview: {
@@ -31,10 +30,9 @@ export default defineConfig({
       "/analytics": { target: "http://127.0.0.1:8000", changeOrigin: true },
       "/messages": { target: "http://127.0.0.1:8000", changeOrigin: true },
       "/scheduler": { target: "http://127.0.0.1:8000", changeOrigin: true },
-      "/sync": { target: "http://127.0.0.1:8000", changeOrigin: true },
       "/retention": { target: "http://127.0.0.1:8000", changeOrigin: true },
       "/debug": { target: "http://127.0.0.1:8000", changeOrigin: true },
-      "/test": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      "^/test/": { target: "http://127.0.0.1:8000", changeOrigin: true },
     },
   },
 });
