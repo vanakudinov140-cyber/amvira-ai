@@ -2992,6 +2992,7 @@ class SchedulerMonitoringResponse(BaseModel):
     eligible_candidates_count: int
     skipped_candidates_count: int
     skipped_reasons_summary: dict[str, int]
+    candidate_selection_summary: dict | None
     last_selected_template: str | None
     last_selected_event: str | None
     last_provider_diagnostics: dict | None

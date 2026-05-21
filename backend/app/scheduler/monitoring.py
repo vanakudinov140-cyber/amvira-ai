@@ -56,6 +56,7 @@ class SchedulerMonitoringSnapshot:
     eligible_candidates_count: int
     skipped_candidates_count: int
     skipped_reasons_summary: dict[str, int]
+    candidate_selection_summary: dict[str, Any] | None
     last_selected_template: str | None
     last_selected_event: str | None
     last_provider_diagnostics: dict[str, Any] | None
@@ -168,6 +169,7 @@ async def build_scheduler_monitoring_snapshot(
         eligible_candidates_count=eligible_count,
         skipped_candidates_count=len(skipped_plans),
         skipped_reasons_summary=_skipped_reasons_summary(skipped_plans),
+        candidate_selection_summary=_candidate_selection_summary(preview.plans),
         last_selected_template=executed_send.get("selected_template"),
         last_selected_event=executed_send.get("matched_event"),
         last_provider_diagnostics=diagnostics,
@@ -192,6 +194,39 @@ def _skipped_reasons_summary(plans: list[object]) -> dict[str, int]:
         else:
             counter["not eligible for this monitoring snapshot"] += 1
     return dict(counter)
+
+
+
+def _candidate_selection_summary(plans: list[object]) -> dict[str, Any] | None:
+    selected = next(
+        (
+            plan
+            for plan in plans
+            if bool(getattr(plan, "would_send", False)) and not bool(getattr(plan, "blocked_by_guard", False))
+        ),
+        None,
+    )
+    if selected is None:
+        return None
+
+    return {
+        "selected_candidate_reason": getattr(selected, "candidate_reason", None),
+        "matched_event": getattr(selected, "matched_event", None),
+        "matched_category": getattr(selected, "matched_category", None),
+        "selected_template": getattr(selected, "selected_template", None),
+        "would_send": bool(getattr(selected, "would_send", False)),
+        "blocked_by_guard": bool(getattr(selected, "blocked_by_guard", False)),
+        "delay_reason": _delay_reason(selected),
+    }
+
+
+def _delay_reason(plan: object) -> str | None:
+    guard_errors = getattr(plan, "guard_errors", None) or []
+    if "calculated delay is not due yet" in guard_errors:
+        return "calculated delay is not due yet"
+    if getattr(plan, "delay_rule", None) and getattr(plan, "scheduled_send_at", None):
+        return "calculated delay is due"
+    return None
 
 
 def _last_send_result(last_cycle: dict[str, Any], executed_send: dict[str, Any]) -> str:
