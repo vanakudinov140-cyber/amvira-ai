@@ -4,6 +4,7 @@ import { Dashboard } from "@/pages/Dashboard";
 import { PendingMessagesPage } from "@/pages/PendingMessagesPage";
 import { RetentionCandidatesPage } from "@/pages/RetentionCandidatesPage";
 import { SyncControlsPage } from "@/pages/SyncControlsPage";
+import { OperationsControlCenterPage } from "@/pages/OperationsControlCenterPage";
 import { Toaster } from "@/components/ui/toaster";
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="candidates" element={<RetentionCandidatesPage />} />
           <Route path="pending" element={<PendingMessagesPage />} />
           <Route path="sync" element={<SyncControlsPage />} />
+          <Route path="operations" element={<OperationsControlCenterPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

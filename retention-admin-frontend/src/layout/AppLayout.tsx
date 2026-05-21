@@ -9,6 +9,7 @@ const NAV: { to: string; label: string; end?: boolean }[] = [
   { to: "/candidates", label: "Retention Candidates" },
   { to: "/pending", label: "Pending Messages" },
   { to: "/sync", label: "Sync Controls" },
+  { to: "/operations", label: "Operations" },
 ];
 
 export function AppLayout() {
