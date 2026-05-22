@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     YCLIENTS_PARTNER_TOKEN: str = ""
     YCLIENTS_COMPANY_ID: int = 0
     YCLIENTS_BASE_URL: str = "https://api.yclients.com/api/v1"
+    REMINDER_BOOKING_LINK: str = ""
 
     # FlowSell Flow API (WhatsApp): https://dev.flowsell.me/docs/
     # FLOWSELL_INSTANCE_ID = idInstance, FLOWSELL_API_KEY = apiTokenInstance
@@ -37,14 +38,22 @@ class Settings(BaseSettings):
     FLOWSELL_INSTANCE_ID: str = ""
     FLOWSELL_API_KEY: str = ""
     FLOWSELL_DRY_RUN: bool = True
+    DEMO_MODE: bool = False
     # Устарело: оставлено для совместимости; не используется клиентом
     FLOWSELL_API_URL: str = ""
 
     TEST_MODE: bool = False
     TEST_RECIPIENTS: str = ""
+    ALLOW_TEST_RECIPIENTS: bool = False
+    MAX_TEST_SEND: int = 1
+    TEST_COOLDOWN_SECONDS: int = 10
 
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_TEST_CHAT_ID: str = ""
+
+    MAX_API_BASE_URL: str = ""
+    MAX_API_TOKEN: str = ""
+    MAX_ADAPTER_TIMEOUT_SECONDS: float = 5.0
 
     SEND_PENDING_LIMIT: int = 5
     SCHEDULER_AUTOMATION_ENABLED: bool = True

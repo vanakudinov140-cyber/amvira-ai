@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from time import monotonic
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
@@ -17,6 +19,53 @@ from app.integrations.flowsell.send_adapter import FlowSellSendAdapter
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/test", tags=["test"])
+
+_DEMO_SEND_COOLDOWN_SECONDS = 300
+_demo_last_send_at: float | None = None
+_test_send_count = 0
+_test_last_send_at: float | None = None
+_DEMO_VALUES = {
+    "client_name": "Анна",
+    "service_name": "Окрашивание",
+    "appointment_date": "Завтра",
+    "appointment_time": "14:30",
+    "master_name": "Мария",
+    "booking_link": "демо",
+}
+
+
+def _normalize_phone(phone: str) -> str:
+    return re.sub(r"\D+", "", phone)
+
+
+def _allowed_test_numbers() -> list[str]:
+    settings = get_settings()
+    return [_normalize_phone(phone) for phone in settings.test_recipient_phones if _normalize_phone(phone)]
+
+
+def _assert_real_test_send_allowed(phone: str) -> str:
+    settings = get_settings()
+    normalized_phone = _normalize_phone(phone)
+
+    if not settings.ALLOW_TEST_RECIPIENTS:
+        raise HTTPException(status_code=403, detail="Реальная тестовая отправка не включена")
+
+    if normalized_phone not in set(_allowed_test_numbers()):
+        raise HTTPException(status_code=403, detail="Отправка разрешена только на тестовые номера")
+
+    if settings.MAX_TEST_SEND < 1:
+        raise HTTPException(status_code=403, detail="Лимит тестовых отправок выключен")
+
+    if _test_last_send_at is not None:
+        elapsed = monotonic() - _test_last_send_at
+        if elapsed < settings.TEST_COOLDOWN_SECONDS:
+            remaining = int(settings.TEST_COOLDOWN_SECONDS - elapsed)
+            raise HTTPException(status_code=429, detail=f"Повторный тест будет доступен через {remaining} сек.")
+
+    if _test_send_count >= settings.MAX_TEST_SEND:
+        raise HTTPException(status_code=429, detail="Лимит тестовых отправок исчерпан")
+
+    return normalized_phone
 
 FLOWSELL_DEMO_HTML = """
 <!doctype html>
@@ -250,6 +299,7 @@ FLOWSELL_DEMO_HTML = """
         <label>
           Ссылка на запись
           <input id="booking_link" name="booking_link" placeholder="https://..." required />
+          <span class="help">Для отзывов ссылка не попадает в текст сообщения, но поле можно оставить заполненным для теста.</span>
         </label>
         <div class="actions">
           <button id="submitButton" type="submit">Отправить тест</button>
@@ -442,6 +492,7 @@ class FlowSellPayloadPreviewResponse(BaseModel):
 class FlowSellControlledSendResponse(BaseModel):
     dry_run: bool
     sent: bool
+    status: str
     provider: str
     event: str
     template: str
@@ -454,6 +505,28 @@ class FlowSellControlledSendResponse(BaseModel):
     validation_errors: list[str]
     warnings: list[str]
     provider_response_preview: str | None = None
+
+
+class FlowSellDemoStatusResponse(BaseModel):
+    demo_mode: bool
+    send_available: bool
+    cooldown_seconds: int
+    allowed_recipients: list[str]
+    provider_connected: bool
+    max_test_send: int
+
+
+class FlowSellDemoSendBody(BaseModel):
+    phone: str = Field(..., min_length=10, max_length=20)
+    scenario: str = Field(default="reminder_24h", min_length=1)
+    confirmed: bool = False
+
+
+class FlowSellDemoSendResponse(BaseModel):
+    sent: bool
+    status: str
+    message_id: str | None = None
+    cooldown_seconds: int
 
 
 @router.get("/flowsell-demo", response_class=HTMLResponse, include_in_schema=False)
@@ -490,21 +563,103 @@ async def flowsell_send_preview(body: FlowSellSendPreviewBody) -> FlowSellPayloa
 
 @router.post("/send-real", response_model=FlowSellControlledSendResponse)
 async def flowsell_send_real(body: FlowSellSendPreviewBody) -> FlowSellControlledSendResponse:
+    global _test_send_count, _test_last_send_at
+
     """
     Controlled single-message send adapter.
 
-    Safe by default: FLOWSELL_DRY_RUN=true returns preview-like result and does
-    not call FlowSell. Real provider call requires FLOWSELL_DRY_RUN=false,
-    TEST_MODE=false, credentials, and valid payload.
+    Production-safe: this endpoint is the only real test-send path. It ignores
+    real records and accepts only preview payload supplied by the test UI.
     """
-    result = await FlowSellSendAdapter().send_event(
+    phone = _assert_real_test_send_allowed(body.phone)
+    settings = get_settings().model_copy(
+        update={
+            "FLOWSELL_DRY_RUN": False,
+            "TEST_MODE": False,
+        },
+    )
+    result = await FlowSellSendAdapter(settings=settings).send_event(
         event=body.event,
-        phone=body.phone,
+        phone=phone,
         service_type=body.service_type,
         channel=body.channel,
         values=body.values,
     )
-    return FlowSellControlledSendResponse(**result.to_dict())
+    status = "sent" if result.sent else "failed"
+    if result.sent:
+        _test_send_count += 1
+        _test_last_send_at = monotonic()
+    logger.info(
+        "[test_send] phone=%s provider=%s status=%s message_id=%s",
+        phone,
+        result.provider,
+        status,
+        result.message_id,
+    )
+    return FlowSellControlledSendResponse(**result.to_dict(), status=status)
+
+
+@router.get("/demo-send/status", response_model=FlowSellDemoStatusResponse)
+async def flowsell_demo_send_status() -> FlowSellDemoStatusResponse:
+    settings = get_settings()
+    return FlowSellDemoStatusResponse(
+        demo_mode=settings.DEMO_MODE,
+        send_available=settings.ALLOW_TEST_RECIPIENTS,
+        cooldown_seconds=settings.TEST_COOLDOWN_SECONDS,
+        allowed_recipients=_allowed_test_numbers(),
+        provider_connected=settings.flowsell_configured,
+        max_test_send=settings.MAX_TEST_SEND,
+    )
+
+
+@router.post("/demo-send", response_model=FlowSellDemoSendResponse)
+async def flowsell_demo_send(body: FlowSellDemoSendBody) -> FlowSellDemoSendResponse:
+    global _demo_last_send_at
+
+    settings = get_settings()
+    if not settings.DEMO_MODE:
+        return FlowSellDemoSendResponse(
+            sent=False,
+            status="Отправка недоступна",
+            cooldown_seconds=_DEMO_SEND_COOLDOWN_SECONDS,
+        )
+    if body.scenario != "reminder_24h":
+        raise HTTPException(status_code=400, detail="Доступен только один демонстрационный сценарий")
+    if not body.confirmed:
+        raise HTTPException(status_code=400, detail="Требуется подтверждение демонстрационного теста")
+
+    phone = re.sub(r"\D+", "", body.phone)
+    if len(phone) < 10:
+        raise HTTPException(status_code=400, detail="Укажите один номер телефона")
+
+    now = monotonic()
+    if _demo_last_send_at is not None:
+        elapsed = now - _demo_last_send_at
+        if elapsed < _DEMO_SEND_COOLDOWN_SECONDS:
+            remaining = int(_DEMO_SEND_COOLDOWN_SECONDS - elapsed)
+            raise HTTPException(status_code=429, detail=f"Повторный тест будет доступен через {remaining} сек.")
+
+    demo_settings = settings.model_copy(
+        update={
+            "FLOWSELL_DRY_RUN": False,
+            "TEST_MODE": False,
+        },
+    )
+    result = await FlowSellSendAdapter(settings=demo_settings).send_event(
+        event="reminder_24h",
+        phone=phone,
+        values=dict(_DEMO_VALUES),
+        service_type=None,
+        channel="sms",
+    )
+    _demo_last_send_at = now
+
+    return FlowSellDemoSendResponse(
+        sent=result.sent,
+        status="Сообщение отправлено" if result.sent else "Отправка недоступна",
+        message_id=result.message_id,
+        cooldown_seconds=_DEMO_SEND_COOLDOWN_SECONDS,
+    )
 
 
 @router.post("/flowsell-send", response_model=FlowsellTestSendResponse)
