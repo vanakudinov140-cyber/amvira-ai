@@ -54,11 +54,18 @@ type DemoSendStatusResponse = {
   demo_mode: boolean;
   send_available: boolean;
   cooldown_seconds: number;
+  allowed_recipients: string[];
+  provider_connected: boolean;
+  max_test_send: number;
 };
 
 type DemoSendResponse = {
   dry_run: boolean;
   sent: boolean;
+  status: string;
+  provider: string;
+  phone: string;
+  channel: string;
   message_id: string | null;
   validation_errors: string[];
 };
@@ -194,6 +201,8 @@ export function TestSendPage() {
   const [sendConfirmOpen, setSendConfirmOpen] = useState(false);
   const [finalSendConfirmed, setFinalSendConfirmed] = useState(false);
   const [sendResultStatus, setSendResultStatus] = useState("—");
+  const [sendResultChannel, setSendResultChannel] = useState("—");
+  const [sendResultPhone, setSendResultPhone] = useState("—");
   const [sendResultMessageId, setSendResultMessageId] = useState("—");
   const [sendResultTime, setSendResultTime] = useState("—");
   const [lastTestSendTime, setLastTestSendTime] = useState<number | null>(null);
@@ -246,16 +255,11 @@ export function TestSendPage() {
     let cancelled = false;
 
     async function loadDemoMode() {
-      if (demoSafeMode) {
-        setDemoMode(true);
-        setDemoStatus("Готово к демонстрационному тесту");
-        return;
-      }
       try {
         const { data } = await apiClient.get<DemoSendStatusResponse>("/test/demo-send/status");
         if (!cancelled) {
-          setDemoMode(data.demo_mode && data.send_available);
-          setDemoStatus(data.demo_mode ? "Готово к демонстрационному тесту" : "Отправка недоступна");
+          setDemoMode(data.send_available);
+          setDemoStatus(data.send_available ? "Реальная тестовая отправка включена" : "Отправка недоступна");
         }
       } catch {
         if (!cancelled) {
@@ -269,7 +273,7 @@ export function TestSendPage() {
     return () => {
       cancelled = true;
     };
-  }, [demoSafeMode]);
+  }, []);
 
   useEffect(() => {
     if (!lastTestSendTime) return;
@@ -388,10 +392,6 @@ export function TestSendPage() {
   }
 
   async function sendDemoMessage() {
-    if (demoSafeMode) {
-      setDemoStatus("Отправка отключена в демонстрационном режиме");
-      return;
-    }
     if (!demoMode || !demoConfirmed || !singleDemoPhone) return;
     setDemoSending(true);
     setDemoStatus("Выполняем тестовую отправку");
@@ -411,9 +411,11 @@ export function TestSendPage() {
           booking_link: DEMO_VALUES.bookingLink,
         },
       });
-      const statusText = data.sent ? "Сообщение отправлено" : "Отправка недоступна";
+      const statusText = data.sent ? "✓ Сообщение отправлено" : "Отправка недоступна";
       setDemoStatus(statusText);
       setSendResultStatus(statusText);
+      setSendResultChannel(data.channel || "—");
+      setSendResultPhone(data.phone || phone);
       setSendResultMessageId(data.message_id || "—");
       setSendResultTime(new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }));
       if (data.sent) {
@@ -425,6 +427,8 @@ export function TestSendPage() {
       const statusText = getErrorMessage(caught) || "Отправка недоступна";
       setDemoStatus(statusText);
       setSendResultStatus(statusText);
+      setSendResultChannel("—");
+      setSendResultPhone(demoPhone.replace(/\D+/g, "") || "—");
       setSendResultMessageId("—");
       setSendResultTime(new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }));
     } finally {
@@ -449,7 +453,7 @@ export function TestSendPage() {
             <h2 className="text-lg font-semibold">Тестовая среда</h2>
             <p className="mt-1 text-sm text-sky-100/80">
               {demoSafeMode
-                ? "Здесь можно безопасно проверять сценарии без реальных данных и отправок."
+                ? "Здесь можно безопасно проверять сценарии без реальных данных. Реальная отправка доступна только на тестовые номера."
                 : "Здесь можно безопасно проверять сценарии и отправлять тестовые сообщения."}
             </p>
           </div>
@@ -687,114 +691,90 @@ export function TestSendPage() {
                   <span>Я проверил сообщение и понимаю, что это только тест</span>
                 </label>
               ) : null}
-              <Button disabled className="w-full">
+              <Button
+                onClick={() => setSendConfirmOpen(true)}
+                disabled={!demoMode || sendButtonDisabled}
+                className="w-full"
+              >
                 <SendHorizonal className="h-4 w-4" />
-                {demoSafeMode ? "Отправка отключена" : "Отправить тест"}
+                {messageAlreadyReceived ? "Проверить ещё раз" : "Отправить тест"}
               </Button>
             </CardContent>
           </Card>
 
-          {demoSafeMode ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Демо-режим</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="rounded-lg border border-border bg-background p-4 text-sm">
-                  <p className="font-medium">Сообщение собирается только из демо-данных.</p>
-                  <div className="mt-3 grid gap-2 text-muted-foreground md:grid-cols-2">
-                    <span>Имя: {DEMO_VALUES.clientName}</span>
-                    <span>Услуга: {DEMO_VALUES.serviceName}</span>
-                    <span>Дата: {DEMO_VALUES.appointmentDate}</span>
-                    <span>Время: {DEMO_VALUES.appointmentTime}</span>
-                    <span>Мастер: {DEMO_VALUES.masterName}</span>
-                    <span>Ссылка: {DEMO_VALUES.bookingLink}</span>
-                  </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Демонстрационная отправка</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-lg border border-border bg-background p-4 text-sm">
+                <p className="font-medium">Демо-сообщение будет собрано без реальных записей.</p>
+                <div className="mt-3 grid gap-2 text-muted-foreground md:grid-cols-2">
+                  <span>Имя: {DEMO_VALUES.clientName}</span>
+                  <span>Услуга: {DEMO_VALUES.serviceName}</span>
+                  <span>Дата: {DEMO_VALUES.appointmentDate}</span>
+                  <span>Время: {DEMO_VALUES.appointmentTime}</span>
+                  <span>Мастер: {DEMO_VALUES.masterName}</span>
+                  <span>Ссылка: {DEMO_VALUES.bookingLink}</span>
                 </div>
-                <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-50">
-                  <p className="font-semibold">Отправки отключены</p>
-                  <p className="mt-1 text-sky-100/80">
-                    В этом режиме нет API, базы данных и provider. Доступен только предпросмотр текста.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardHeader>
-                <CardTitle>Демонстрационная отправка</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="rounded-lg border border-border bg-background p-4 text-sm">
-                  <p className="font-medium">Демо-сообщение будет собрано без реальных записей.</p>
-                  <div className="mt-3 grid gap-2 text-muted-foreground md:grid-cols-2">
-                    <span>Имя: {DEMO_VALUES.clientName}</span>
-                    <span>Услуга: {DEMO_VALUES.serviceName}</span>
-                    <span>Дата: {DEMO_VALUES.appointmentDate}</span>
-                    <span>Время: {DEMO_VALUES.appointmentTime}</span>
-                    <span>Мастер: {DEMO_VALUES.masterName}</span>
-                    <span>Ссылка: {DEMO_VALUES.bookingLink}</span>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium" htmlFor="demo-phone">
-                    Ваш номер телефона
-                  </label>
-                  <Input
-                    id="demo-phone"
-                    value={demoPhone}
-                    onChange={(event) => setDemoPhone(event.target.value)}
-                    placeholder="Введите один номер"
-                  />
-                </div>
-                <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-background p-4 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={demoConfirmed}
-                    onChange={(event) => setDemoConfirmed(event.target.checked)}
-                    className="mt-0.5 h-4 w-4 accent-primary"
-                  />
-                  <span>Я понимаю, что это демонстрационный тест</span>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="demo-phone">
+                  Ваш номер телефона
                 </label>
-                {demoMode ? (
-                  cooldownLeft > 0 ? (
-                    <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm text-emerald-50">
-                      <p className="font-semibold">Тест уже выполнен</p>
-                      <p className="mt-1 text-emerald-100/80">
-                        Повторная проверка будет доступна через {formatCooldown(cooldownLeft)}
-                      </p>
-                    </div>
-                  ) : (
-                    <Button
-                      onClick={() => setSendConfirmOpen(true)}
-                      disabled={sendButtonDisabled}
-                      className="w-full"
-                    >
-                      <SendHorizonal className="h-4 w-4" />
-                      {messageAlreadyReceived ? "Проверить ещё раз" : "Отправить тест"}
-                    </Button>
-                  )
-                ) : (
-                  <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-50">
-                    <p className="font-semibold">Демонстрационный режим</p>
-                    <p className="mt-1 text-sky-100/80">
-                      Для защиты данных реальная отправка сейчас отключена.
-                      Вы можете проверить сценарий и посмотреть результат.
+                <Input
+                  id="demo-phone"
+                  value={demoPhone}
+                  onChange={(event) => setDemoPhone(event.target.value)}
+                  placeholder="Введите один номер"
+                />
+              </div>
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-background p-4 text-sm">
+                <input
+                  type="checkbox"
+                  checked={demoConfirmed}
+                  onChange={(event) => setDemoConfirmed(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-primary"
+                />
+                <span>Я понимаю, что это демонстрационный тест</span>
+              </label>
+              {demoMode ? (
+                cooldownLeft > 0 ? (
+                  <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm text-emerald-50">
+                    <p className="font-semibold">Тест уже выполнен</p>
+                    <p className="mt-1 text-emerald-100/80">
+                      Повторная проверка будет доступна через {formatCooldown(cooldownLeft)}
                     </p>
                   </div>
-                )}
-                <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-                  {demoStatus}
-                </div>
-                <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-4 text-sm text-violet-50">
-                  <p className="font-semibold">🧪 Можно выполнять повторные проверки</p>
-                  <p className="mt-1 text-violet-100/80">
-                    Следующий тест через: {formatCooldown(cooldownLeft)}
+                ) : (
+                  <Button
+                    onClick={() => setSendConfirmOpen(true)}
+                    disabled={sendButtonDisabled}
+                    className="w-full"
+                  >
+                    <SendHorizonal className="h-4 w-4" />
+                    {messageAlreadyReceived ? "Проверить ещё раз" : "Отправить тест"}
+                  </Button>
+                )
+              ) : (
+                <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-50">
+                  <p className="font-semibold">Тестовая отправка выключена</p>
+                  <p className="mt-1 text-sky-100/80">
+                    Включите ALLOW_TEST_RECIPIENTS=true и задайте TEST_RECIPIENTS, чтобы отправлять только на тестовые номера.
                   </p>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              )}
+              <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                {demoStatus}
+              </div>
+              <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-4 text-sm text-violet-50">
+                <p className="font-semibold">🧪 Можно выполнять повторные проверки</p>
+                <p className="mt-1 text-violet-100/80">
+                  Следующий тест через: {formatCooldown(cooldownLeft)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>
@@ -804,9 +784,11 @@ export function TestSendPage() {
               <div className="rounded-lg border border-dashed border-border p-5 text-sm text-muted-foreground">
                 {resultText}
               </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="mt-4 grid gap-3 md:grid-cols-5">
                 <Info label="Статус" value={sendResultStatus} />
-                <Info label="Номер сообщения" value={sendResultMessageId} />
+                <Info label="Канал" value={sendResultChannel} />
+                <Info label="Номер" value={sendResultPhone} />
+                <Info label="message_id" value={sendResultMessageId} />
                 <Info label="Время" value={sendResultTime} />
               </div>
             </CardContent>
@@ -861,40 +843,38 @@ export function TestSendPage() {
           </div>
         </div>
       </Dialog>
-      {!demoSafeMode ? (
-        <Dialog
-          open={sendConfirmOpen}
-          onClose={() => {
-            setSendConfirmOpen(false);
-            setFinalSendConfirmed(false);
-          }}
-          title="Подтвердите тестовую отправку"
-          className="max-w-md"
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Будет отправлено одно настоящее сообщение на указанный номер.
-            </p>
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-background p-4 text-sm">
-              <input
-                type="checkbox"
-                checked={finalSendConfirmed}
-                onChange={(event) => setFinalSendConfirmed(event.target.checked)}
-                className="mt-0.5 h-4 w-4 accent-primary"
-              />
-              <span>Я понимаю и подтверждаю тест</span>
-            </label>
-            <Button
-              onClick={sendDemoMessage}
-              disabled={!finalSendConfirmed || !singleDemoPhone || demoSending || cooldownLeft > 0}
-              className="w-full"
-            >
-              <SendHorizonal className="h-4 w-4" />
-              {demoSending ? "Отправляем" : "Отправить тест"}
-            </Button>
-          </div>
-        </Dialog>
-      ) : null}
+      <Dialog
+        open={sendConfirmOpen}
+        onClose={() => {
+          setSendConfirmOpen(false);
+          setFinalSendConfirmed(false);
+        }}
+        title="Подтвердите тестовую отправку"
+        className="max-w-md"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Будет отправлено одно настоящее сообщение на указанный тестовый номер.
+          </p>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-background p-4 text-sm">
+            <input
+              type="checkbox"
+              checked={finalSendConfirmed}
+              onChange={(event) => setFinalSendConfirmed(event.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-primary"
+            />
+            <span>Я понимаю и подтверждаю тест</span>
+          </label>
+          <Button
+            onClick={sendDemoMessage}
+            disabled={!finalSendConfirmed || !singleDemoPhone || demoSending || cooldownLeft > 0}
+            className="w-full"
+          >
+            <SendHorizonal className="h-4 w-4" />
+            {demoSending ? "Отправляем" : "Отправить тест"}
+          </Button>
+        </div>
+      </Dialog>
     </main>
   );
 }
