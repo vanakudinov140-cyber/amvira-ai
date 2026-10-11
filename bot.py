@@ -215,7 +215,7 @@ def ready_keyboard():
 def confirm_ready_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="все поняла! готова быть в прайме⭐️⭐️⭐️",
+            text="Всё поняла! Готова погружаться 🌊",
             callback_data="ready_prime"
         )]
     ])
