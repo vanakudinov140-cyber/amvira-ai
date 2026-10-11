@@ -1,38 +1,25 @@
-# Docker build context — только retention backend (корень monorepo)
 .git
 .gitignore
-.gitattributes
 
-**/.env
-**/.env.local
-**/.env.*
-!**/.env.example
-!.env.amvera.example
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
-**/node_modules
-**/__pycache__
-**/*.pyc
-**/.pytest_cache
-**/.mypy_cache
-**/.ruff_cache
-**/.venv
-**/venv
+.env
+.env.*
+*.db
 
-# Другие проекты monorepo — не участвуют в образе API
-admin-dashboard/
-nestjs-api/
-museum-visitor-registration/
-AvatarArena_VK_Raffle_Package/
-Бот*/
-отслеживание*/
-demo-public-url.txt
-cloudflared-tunnel.log
-scripts/cloudflared.exe
+.venv/
+venv/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
 terminals/
+.cursor/
+.vscode/
 
 Dockerfile.legacy
 docker-compose*.yml
-.vscode/
-
-**/*.md
-!deploy/DEPLOY_AMVERA.md
