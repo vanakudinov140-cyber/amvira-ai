@@ -94,8 +94,11 @@ def no_energy_image_for_day(day=None):
     # Единая картинка в течение московского дня; последовательность 1 → 2 → 3.
     day = day or datetime.now(MSK).date()
     return NO_ENERGY_IMAGES[(day - date(2026, 10, 11)).days % 3]
+
+
 REMINDER_16_IMAGE = os.path.join(BASE_DIR, "images", "reminder_16.jpg")
 REMINDER_20_IMAGE = os.path.join(BASE_DIR, "images", "reminder_20.jpg")
+
 
 def _pick_existing_path(candidates: list[str]) -> str | None:
     return next((p for p in candidates if p and os.path.isfile(p)), None)
@@ -182,10 +185,12 @@ async def safe_send_photo(chat_id, photo_path, caption, **kwargs):
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
+
 def progress_bar(value, max_value=2):
     """Дневной индикатор: красные кружки меняются на белые."""
     value = max(0, min(int(value), max_value))
     return "⚪" * value + "🔴" * (max_value - value)
+
 
 def get_level(total):
     if total <= 0:
@@ -195,6 +200,7 @@ def get_level(total):
     else:
         return "ТЫ В ГЛУБИНЕ 🧜🏼‍♀️"
 
+
 def intro_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
@@ -202,6 +208,7 @@ def intro_keyboard():
             callback_data="about_discipline_bot"
         )]
     ])
+
 
 def ready_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -219,6 +226,7 @@ def confirm_ready_keyboard():
             callback_data="ready_prime"
         )]
     ])
+
 
 def main_keyboard(user_id=None):
     buttons = [
@@ -239,6 +247,7 @@ def main_keyboard(user_id=None):
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
 def admin_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -249,6 +258,7 @@ def admin_keyboard():
             InlineKeyboardButton(text="🧪 Проверка напоминаний", callback_data="admin_debug_reminder")
         ]
     ])
+
 
 def is_link(text):
     return "http://" in text or "https://" in text
@@ -316,6 +326,7 @@ async def get_today_count(user_id):
         row = await cur.fetchone()
         return row[0] if row else 0
 
+
 async def update_submission(user_id):
     today = moscow_today_str()
 
@@ -369,7 +380,13 @@ async def update_submission(user_id):
                 streak = 1
                 challenge = 1
 
-        total += 1
+        # Общий итог всегда равен сумме реально засчитанных дневных публикаций.
+        # Поэтому третья и последующие ссылки после достижения 2/2 не увеличивают жемчужины.
+        cur = await db.execute(
+            "SELECT COALESCE(SUM(count), 0) FROM submissions WHERE user_id=?",
+            (user_id,)
+        )
+        total = (await cur.fetchone())[0]
         best = max(best, new_count)
 
         await db.execute("""
@@ -406,10 +423,12 @@ async def start(message: types.Message):
         reply_markup=intro_keyboard()
     )
 
+
 @dp.callback_query(F.data == "about_discipline_bot")
 async def about_discipline_bot(callback: types.CallbackQuery):
     await callback.answer()
     await callback.message.answer('🌊 <b>БОТ ДИСЦИПЛИНЫ — ТВОЙ ДРУГ НА 3 НЕДЕЛИ ПОГРУЖЕНИЯ!</b>\n\nЧто он умеет?\n\n🫧Отслеживает твои reels и посты.\n\n🫧Фиксирует прогресс и начисляет жемчужины за опубликованный контент.\n\n🫧 Показывает, на каком уровне регулярности ты сейчас находишься:\n\n1. 🐚 НА БЕРЕГУ\n2. 🌊 В ПОТОКЕ\n3. 🧜🏼\u200d♀️ ТЫ В ГЛУБИНЕ\n\n🫧 Считает количество публикаций за день и неделю, подводит итоги.\n\n🫧 Напоминает, когда пора опубликовать новый контент.\n\n<b>Обязательно включи уведомления!</b> 🩵\n\nПусть этот бот станет твоим маленьким ежедневным ритуалом на пути к результату!', reply_markup=ready_keyboard())
+
 
 @dp.callback_query(F.data == "how_level_up")
 async def how_level_up(callback: types.CallbackQuery):
@@ -469,15 +488,15 @@ async def handle(message: types.Message):
     count, total, streak, best, challenge = await update_submission(message.from_user.id)
     counted_now = count > before_count
 
-    await answer_with_optional_photo(
-        message,
-        'Ты умничка!!🩵\n\nЕщё одна публикация в копилку твоей регулярности!',
-        image_path=SUCCESS_IMAGE
-    )
-
-    await asyncio.sleep(0.3)
-
     if counted_now:
+        await answer_with_optional_photo(
+            message,
+            'Ты умничка!!🩵\n\nЕщё одна публикация в копилку твоей регулярности!',
+            image_path=SUCCESS_IMAGE
+        )
+
+        await asyncio.sleep(0.3)
+
         await message.answer(
             f"🦪Жемчужины: {total}\n\n🫧Сегодня: {count}/2\n\n"
             "Продолжай в том же духе, ты уже на шаг ближе к своей цели!",
@@ -582,6 +601,7 @@ async def published_content(callback: types.CallbackQuery):
     await callback.answer()
     await callback.message.answer('Урааа!🌊\n\nПрисылай ссылку на свой reels или пост, будем пополнять твою коллекцию жемчужин🦪')
 
+
 @dp.callback_query(F.data == "no_energy")
 async def no_energy(callback: types.CallbackQuery):
     await callback.answer()
@@ -622,18 +642,26 @@ async def admin_panel(callback: types.CallbackQuery):
 
     await callback.message.answer("🔐 Админ-панель", reply_markup=admin_keyboard())
 
+
 @dp.callback_query(F.data == "admin_stats")
 async def admin_stats(callback: types.CallbackQuery):
     await callback.answer()
+    if not is_admin(callback.from_user.id):
+        return
+
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute("SELECT COUNT(*) FROM users")
         users = (await cur.fetchone())[0]
 
     await callback.message.answer(f"👥 Пользователей: {users}")
 
+
 @dp.callback_query(F.data == "admin_export")
 async def export(callback: types.CallbackQuery):
     await callback.answer()
+    if not is_admin(callback.from_user.id):
+        return
+
     wb = Workbook()
     ws = wb.active
     ws.title = "Статистика"
@@ -652,7 +680,7 @@ async def export(callback: types.CallbackQuery):
     ]
     ws.append(headers)
 
-    today_str = str(date.today())
+    today_str = moscow_today_str()
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute("""
         SELECT
@@ -873,6 +901,7 @@ async def main():
         )
 
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
