@@ -3,8 +3,10 @@
 import asyncio
 import logging
 import os
+import re
 import sys
 from datetime import datetime, date
+from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher, types, F
@@ -70,6 +72,7 @@ MSK = ZoneInfo("Europe/Moscow")
 
 def moscow_today_str() -> str:
     return datetime.now(MSK).date().isoformat()
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # На Amvera постоянное хранилище обычно смонтировано в /data (см. amvera.yaml).
@@ -255,13 +258,46 @@ def admin_keyboard():
             InlineKeyboardButton(text="📥 Excel", callback_data="admin_export")
         ],
         [
-            InlineKeyboardButton(text="🧪 Проверка напоминаний", callback_data="admin_debug_reminder")
+            InlineKeyboardButton(text="🧪 Тест напоминаний (только мне)", callback_data="admin_debug_reminder")
         ]
     ])
 
 
+_URL_RE = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
+
+
+def extract_url(text):
+    match = _URL_RE.search(text or "")
+    if not match:
+        return None
+    return match.group(0).rstrip(".,!?;:)]}\"'")
+
+
+def normalize_url(url):
+    """Нормализует ссылку для защиты от повторного зачёта одной публикации."""
+    try:
+        parts = urlsplit((url or "").strip())
+    except ValueError:
+        return (url or "").strip()
+
+    scheme = parts.scheme.lower()
+    netloc = parts.netloc.lower()
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+
+    path = parts.path.rstrip("/") or "/"
+    query = parts.query
+
+    # У Instagram параметры вида ?igsh=... / ?hl=... не меняют саму публикацию.
+    if netloc == "instagram.com" or netloc.endswith(".instagram.com"):
+        netloc = "instagram.com"
+        query = ""
+
+    return urlunsplit((scheme, netloc, path, query, ""))
+
+
 def is_link(text):
-    return "http://" in text or "https://" in text
+    return extract_url(text) is not None
 
 
 def image_exists(path):
@@ -310,6 +346,15 @@ async def init_db():
             PRIMARY KEY (user_id, date)
         )
         """)
+
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS submitted_links (
+            user_id INTEGER NOT NULL,
+            url TEXT NOT NULL,
+            first_seen_date TEXT NOT NULL,
+            PRIMARY KEY (user_id, url)
+        )
+        """)
         await db.commit()
 
 # ======================
@@ -327,7 +372,7 @@ async def get_today_count(user_id):
         return row[0] if row else 0
 
 
-async def update_submission(user_id):
+async def update_submission(user_id, normalized_url):
     today = moscow_today_str()
 
     async with aiosqlite.connect(DB_NAME) as db:
@@ -341,21 +386,7 @@ async def update_submission(user_id):
             (user_id, today)
         )
         row = await cur.fetchone()
-
-        if row:
-            # В день засчитываем максимум 2 публикации.
-            new_count = min(row[0] + 1, 2)
-        else:
-            new_count = 1
-            await db.execute(
-                "INSERT OR IGNORE INTO submissions VALUES (?, ?, ?)",
-                (user_id, today, 0)
-            )
-
-        await db.execute(
-            "UPDATE submissions SET count=? WHERE user_id=? AND date=?",
-            (new_count, user_id, today)
-        )
+        current_count = row[0] if row else 0
 
         cur = await db.execute(
             "SELECT total_points, streak, last_date, best_day, challenge_day FROM users WHERE user_id=?",
@@ -366,6 +397,35 @@ async def update_submission(user_id):
             total, streak, last_date, best, challenge = 0, 0, None, 0, 0
         else:
             total, streak, last_date, best, challenge = user_row
+
+        # После дневного лимита новые ссылки не засчитываются и не помечаются использованными.
+        if current_count >= 2:
+            return current_count, total, streak, best, challenge, "limit"
+
+        cur = await db.execute(
+            "SELECT 1 FROM submitted_links WHERE user_id=? AND url=?",
+            (user_id, normalized_url)
+        )
+        if await cur.fetchone():
+            return current_count, total, streak, best, challenge, "duplicate"
+
+        new_count = current_count + 1
+        if row:
+            await db.execute(
+                "UPDATE submissions SET count=? WHERE user_id=? AND date=?",
+                (new_count, user_id, today)
+            )
+        else:
+            await db.execute(
+                "INSERT INTO submissions (user_id, date, count) VALUES (?, ?, ?)",
+                (user_id, today, new_count)
+            )
+
+        # Ссылка считается использованной только если публикация реально была засчитана.
+        await db.execute(
+            "INSERT INTO submitted_links (user_id, url, first_seen_date) VALUES (?, ?, ?)",
+            (user_id, normalized_url, today)
+        )
 
         if last_date != today:
             if last_date:
@@ -381,7 +441,6 @@ async def update_submission(user_id):
                 challenge = 1
 
         # Общий итог всегда равен сумме реально засчитанных дневных публикаций.
-        # Поэтому третья и последующие ссылки после достижения 2/2 не увеличивают жемчужины.
         cur = await db.execute(
             "SELECT COALESCE(SUM(count), 0) FROM submissions WHERE user_id=?",
             (user_id,)
@@ -397,7 +456,7 @@ async def update_submission(user_id):
 
         await db.commit()
 
-        return new_count, total, streak, best, challenge
+        return new_count, total, streak, best, challenge, "counted"
 
 # ======================
 # START
@@ -439,11 +498,11 @@ async def how_level_up(callback: types.CallbackQuery):
 Для повышения твоего уровня в игре, тебе необходимо <b><u>РЕГУЛЯРНО</u></b> публиковать контент (reels и посты) и отправлять это в <b><u>БОТ ДИСЦИПЛИНЫ</u></b>🏰
 
 Во вкладке:
-📶<b>Твой прогресс</b> — ты будешь видеть сколько единиц контента ты опубликовала и собирать <b>КЛЮЧИКИ</b>🗝️
+📶<b>Твой прогресс</b> — ты будешь видеть сколько единиц контента ты опубликовала и собирать <b>ЖЕМЧУЖИНЫ</b>🦪
 
 🌟<b>Дней подряд</b>: показывает сколько дней подряд ты публикуешь контент
 
-<b>ВАЖНО</b>: для того, чтобы быть в ПРАЙМЕ💅🏼необходимо публиковать 2 единицы контента в день (reels, посты) и собирать ключики!
+<b>ВАЖНО</b>: для того, чтобы быть в ПРАЙМЕ💅🏼необходимо публиковать 2 единицы контента в день (reels, посты) и собирать жемчужины!
 
 Помни — регулярность, это важно и не забывай присылать ссылки на свои reels и посты!!
 """,
@@ -480,34 +539,46 @@ async def handle(message: types.Message):
         )
         await db.commit()
 
-    if not is_link(message.text):
+    raw_url = extract_url(message.text)
+    if not raw_url:
         await message.answer(f"🧐 {name}, пришли ссылку на видео 💌")
         return
 
-    before_count = await get_today_count(message.from_user.id)
-    count, total, streak, best, challenge = await update_submission(message.from_user.id)
-    counted_now = count > before_count
+    normalized_url = normalize_url(raw_url)
+    count, total, streak, best, challenge, status = await update_submission(
+        message.from_user.id,
+        normalized_url
+    )
 
-    if counted_now:
-        await answer_with_optional_photo(
-            message,
-            'Ты умничка!!🩵\n\nЕщё одна публикация в копилку твоей регулярности!',
-            image_path=SUCCESS_IMAGE
-        )
-
-        await asyncio.sleep(0.3)
-
+    if status == "duplicate":
         await message.answer(
-            f"🦪Жемчужины: {total}\n\n🫧Сегодня: {count}/2\n\n"
-            "Продолжай в том же духе, ты уже на шаг ближе к своей цели!",
+            "Эта ссылка уже была засчитана раньше 🦪\n\n"
+            "Пришли ссылку на другую публикацию — повторно жемчужина за тот же контент не начисляется.",
             reply_markup=main_keyboard(message.from_user.id)
         )
-    else:
+        return
+
+    if status == "limit":
         await message.answer(
             "На сегодня уже засчитано <b>2/2</b> публикации 🌊\n"
             "Новые жемчужины начнут начисляться с нового дня.",
             reply_markup=main_keyboard(message.from_user.id)
         )
+        return
+
+    await answer_with_optional_photo(
+        message,
+        'Ты умничка!!🩵\n\nЕщё одна публикация в копилку твоей регулярности!',
+        image_path=SUCCESS_IMAGE
+    )
+
+    await asyncio.sleep(0.3)
+
+    await message.answer(
+        f"🦪Жемчужины: {total}\n\n🫧Сегодня: {count}/2\n\n"
+        "Продолжай в том же духе, ты уже на шаг ближе к своей цели!",
+        reply_markup=main_keyboard(message.from_user.id)
+    )
 
 # ======================
 # STATS
@@ -605,7 +676,6 @@ async def published_content(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "no_energy")
 async def no_energy(callback: types.CallbackQuery):
     await callback.answer()
-    name = callback.from_user.first_name
     await answer_with_optional_photo(
         callback.message,
         """Girl, понимаю тебя🩵
@@ -722,7 +792,7 @@ async def export(callback: types.CallbackQuery):
             total_points,
             streak,
             best,
-            f"{challenge}/7",
+            f"{challenge}/21",
             last_date or "-",
             level
         ])
@@ -746,30 +816,47 @@ async def export(callback: types.CallbackQuery):
     await callback.message.answer_document(types.FSInputFile(file))
 
 
-async def send_debug_reminder_report(target):
-    await target.answer("Запускаю ручную проверку напоминаний (16:00 и 20:00)...")
-    stats_16 = await run_reminder(REMINDER_16_IMAGE, "reminder_16")
-    stats_20 = await run_reminder(REMINDER_20_IMAGE, "reminder_20")
+async def send_debug_reminder_preview(target, admin_id):
+    """Безопасный предпросмотр: отправляет оба варианта напоминания только админу."""
+    count = await get_today_count(admin_id)
+    remaining = max(0, 2 - count)
 
-    report = (
-        "🧪 <b>debug_reminder</b>\n\n"
-        f"📌 День: {moscow_today_str()}\n\n"
-        f"<b>reminder_16</b>\n"
-        f"• пользователей в БД: {stats_16['total_users']}\n"
-        f"• подходящих (count < 2): {stats_16['eligible_users']}\n"
-        f"• отправлено: {stats_16['sent']}\n"
-        f"• пропущено (уже 2/2): {stats_16['already_done']}\n"
-        f"• не отправлено (block/bad request): {stats_16['not_sent']}\n"
-        f"• ошибок: {stats_16['errors']}\n\n"
-        f"<b>reminder_20</b>\n"
-        f"• пользователей в БД: {stats_20['total_users']}\n"
-        f"• подходящих (count < 2): {stats_20['eligible_users']}\n"
-        f"• отправлено: {stats_20['sent']}\n"
-        f"• пропущено (уже 2/2): {stats_20['already_done']}\n"
-        f"• не отправлено (block/bad request): {stats_20['not_sent']}\n"
-        f"• ошибок: {stats_20['errors']}"
+    await target.answer(
+        "🧪 Запускаю безопасный тест напоминаний.\n"
+        "Оба тестовых сообщения будут отправлены только вам — участницы ничего не получат."
     )
-    await target.answer(report)
+
+    for label, image_path in (
+        ("16:00", REMINDER_16_IMAGE),
+        ("20:00", REMINDER_20_IMAGE),
+    ):
+        text = (
+            f"🧪 <b>ТЕСТ НАПОМИНАНИЯ {label}</b>\n"
+            "<i>Это сообщение видит только администратор.</i>\n\n"
+            "<b>H2O — ЧЕЛЛЕНДЖ 🌊</b>\n\n"
+            "Girl, время создавать контент!\n\n"
+            "Помни: если хочешь научиться — начни, а не сравнивай себя с другими🩵\n\n"
+            f"🦪 На сегодня осталось: {remaining}/2"
+        )
+
+        if image_exists(image_path):
+            await safe_send_photo(
+                admin_id,
+                image_path,
+                text,
+                reply_markup=main_keyboard(admin_id)
+            )
+        else:
+            await safe_send(
+                admin_id,
+                text,
+                reply_markup=main_keyboard(admin_id)
+            )
+
+    await target.answer(
+        "✅ Проверка завершена. Два тестовых напоминания отправлены только вам. "
+        "Массовая рассылка не запускалась."
+    )
 
 
 @dp.callback_query(F.data == "admin_debug_reminder")
@@ -777,7 +864,7 @@ async def admin_debug_reminder(callback: types.CallbackQuery):
     await callback.answer()
     if not is_admin(callback.from_user.id):
         return
-    await send_debug_reminder_report(callback.message)
+    await send_debug_reminder_preview(callback.message, callback.from_user.id)
 
 
 @dp.message(Command("debug_reminder"))
@@ -786,7 +873,7 @@ async def debug_reminder(message: types.Message):
         await message.answer("⛔ Команда доступна только администратору.")
         return
 
-    await send_debug_reminder_report(message)
+    await send_debug_reminder_preview(message, message.from_user.id)
 
 # ======================
 # REMINDER
