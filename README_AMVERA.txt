@@ -35,3 +35,4 @@ H2O — НОВЫЙ ПРОЕКТ В AMVERA
 
 SYNC MARKER: final H2O images uploaded 2026-10-16.
 WEBHOOK RECONNECT MARKER: pushed after Amvera Moscow_1 reconnect on 2026-10-16.
+DEPLOY TRIGGER: force Amvera sync after Miami-0 stale rebuild on 2026-10-20.
